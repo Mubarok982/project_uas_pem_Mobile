@@ -1,14 +1,23 @@
-import 'package:flutter/material.dart';
+//import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-// Import halaman-halaman
+// Import semua halaman
 import 'package:veriaga/features/auth/presentation/login_page.dart';
 import 'package:veriaga/features/auth/presentation/register_page.dart';
 import 'package:veriaga/features/supplier/presentation/supplier_main_page.dart'; 
 import 'package:veriaga/features/supplier/presentation/pages/product/add_product_page.dart';
-import 'package:veriaga/features/supplier/presentation/pages/product/edit_product_page.dart'; // ✅ TAMBAHAN IMPORT
+import 'package:veriaga/features/supplier/presentation/pages/product/edit_product_page.dart'; 
 import 'package:veriaga/features/supplier/presentation/pages/supplier_dispute_page.dart';
-import 'package:veriaga/features/supplier/presentation/pages/supplier_profile_page.dart'; // Import Baru
+import 'package:veriaga/features/supplier/presentation/pages/supplier_profile_page.dart'; 
+import 'package:veriaga/features/buyer/presentation/buyer_main_page.dart'; // Pastikan import ini ada
+import 'package:veriaga/features/buyer/cart/buyer_product_detail_page.dart';
+import 'package:veriaga/features/buyer/orders/halaman_checkout.dart';
+import 'package:veriaga/features/buyer/orders/verifikasiAI.dart';
+
+
+
+
+
 
 final appRouter = GoRouter(
   initialLocation: '/login',
@@ -25,39 +34,34 @@ final appRouter = GoRouter(
       builder: (context, state) => const RegisterPage(),
     ),
     
-    // 3. Dashboard (Pemisah Role)
+    // 3. Dashboard (Logika Percabangan Peran)
     GoRoute(
       path: '/dashboard',
       builder: (context, state) {
+        // Ambil role, default ke 'buyer' jika null
         final role = state.extra as String? ?? 'buyer';
         
         if (role == 'supplier') {
           return const SupplierMainPage();
         } else {
-          return const Scaffold(
-            body: Center(child: Text("Halaman Pembeli (Segera Hadir)")),
-          );
+          // ✅ PERBAIKAN: Langsung arahkan ke BuyerMainPage
+          return const BuyerMainPage(); 
         }
       },
     ),
     
-    // 4. Tambah Produk
+    // --- RUTE SUPPLIER ---
     GoRoute(
       path: '/supplier/add-product',
       builder: (context, state) => const AddProductPage(),
     ),
-
-    // 5. Edit Produk (✅ RUTE BARU)
     GoRoute(
       path: '/supplier/edit-product',
       builder: (context, state) {
-        // Kita menangkap data produk yang dikirim lewat parameter 'extra'
-        // Data ini dikirim dari tombol Edit di SupplierProductPage
         final product = state.extra as Map<String, dynamic>; 
         return EditProductPage(product: product);
       },
     ),
-    // 6. Halaman Dispute Supplier
     GoRoute(
       path: '/supplier/dispute-detail',
       builder: (context, state) {
@@ -65,10 +69,28 @@ final appRouter = GoRouter(
         return SupplierDisputePage(orderId: orderId);
       },
     ),
-    // 7. Halaman Profil Supplier 
     GoRoute(
       path: '/supplier/profile',
       builder: (context, state) => const SupplierProfilePage(),
     ),
+    // --- RUTE BUYER ---
+    GoRoute(
+      path: '/buyer/product-detail',
+      builder: (context, state) {
+        final product = state.extra as Map<String, dynamic>;
+        return BuyerProductDetailPage(product: product);
+      },
+    ),
+    GoRoute(
+      path: '/buyer/checkout',
+      builder: (context, state) => const BuyerCheckoutPage(),
+    ),
+    GoRoute(
+      path: '/buyer/verify-ai',
+      builder: (context, state) {
+        final order = state.extra as Map<String, dynamic>;
+        return BuyerAiVerificationPage(order: order);
+      },
+    )
   ],
 );

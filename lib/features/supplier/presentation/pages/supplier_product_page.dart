@@ -131,7 +131,6 @@ class SupplierProductPage extends StatelessWidget {
   }
 
   void _confirmDelete(BuildContext context, String productId) {
-    // ... (Kode delete sama seperti sebelumnya)
      showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
