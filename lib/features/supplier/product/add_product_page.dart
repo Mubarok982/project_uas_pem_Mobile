@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data'; // ✅ Import Wajib untuk Uint8List
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -20,10 +20,21 @@ class _AddProductPageState extends State<AddProductPage> {
   final _stockController = TextEditingController();
   final _categoryController = TextEditingController();
 
-  File? _imageFile;
+  // ✅ GANTI File JADI Uint8List AGAR BISA JALAN DI WEB & HP
+  Uint8List? _imageBytes; 
   bool _isLoading = false;
 
-  // 1. Fungsi Ambil Gambar
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _priceController.dispose();
+    _stockController.dispose();
+    _categoryController.dispose();
+    super.dispose();
+  }
+
+  // 1. Fungsi Ambil Gambar (Baca Bytes)
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
@@ -32,8 +43,10 @@ class _AddProductPageState extends State<AddProductPage> {
     );
 
     if (pickedFile != null) {
+      // ✅ BACA SEBAGAI BYTES, BUKAN PATH
+      final bytes = await pickedFile.readAsBytes();
       setState(() {
-        _imageFile = File(pickedFile.path);
+        _imageBytes = bytes;
       });
     }
   }
@@ -41,7 +54,7 @@ class _AddProductPageState extends State<AddProductPage> {
   // 2. Fungsi Upload & Simpan ke DB
   Future<void> _submitProduct() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_imageFile == null) {
+    if (_imageBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Wajib upload foto produk!")),
       );
@@ -54,19 +67,18 @@ class _AddProductPageState extends State<AddProductPage> {
       final supabase = Supabase.instance.client;
       final user = supabase.auth.currentUser;
       
-      // A. Upload Gambar ke Storage Bucket 'products'
-      final fileExt = _imageFile!.path.split('.').last;
-      final fileName = '${user!.id}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-      final storagePath = fileName;
-
-      await supabase.storage.from('products').upload(
-        storagePath,
-        _imageFile!,
+      // A. Upload Gambar (Binary)
+      // Gunakan timestamp agar nama file unik
+      final fileName = '${user!.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      
+      await supabase.storage.from('products').uploadBinary(
+        fileName,
+        _imageBytes!, // Upload bytes
         fileOptions: const FileOptions(contentType: 'image/jpeg'),
       );
 
       // B. Dapatkan URL Public Gambar
-      final imageUrl = supabase.storage.from('products').getPublicUrl(storagePath);
+      final imageUrl = supabase.storage.from('products').getPublicUrl(fileName);
 
       // C. Simpan Data Produk ke Tabel 'products'
       await supabase.from('products').insert({
@@ -78,6 +90,7 @@ class _AddProductPageState extends State<AddProductPage> {
         'category': _categoryController.text.trim(),
         'image_url': imageUrl,
         'is_active': true,
+        'created_at': DateTime.now().toIso8601String(),
       });
 
       if (mounted) {
@@ -118,20 +131,21 @@ class _AddProductPageState extends State<AddProductPage> {
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.grey[400]!),
-                    image: _imageFile != null
-                        ? DecorationImage(image: FileImage(_imageFile!), fit: BoxFit.cover)
-                        : null,
                   ),
-                  child: _imageFile == null
-                      ? const Column(
+                  child: _imageBytes != null
+                      // ✅ TAMPILKAN PAKAI Image.memory AGAR SUPPORT WEB
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(_imageBytes!, fit: BoxFit.cover),
+                        )
+                      : const Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(Icons.add_a_photo, size: 40, color: Colors.grey),
                             Gap(8),
                             Text("Ketuk untuk upload foto"),
                           ],
-                        )
-                      : null,
+                        ),
                 ),
               ),
               const Gap(24),

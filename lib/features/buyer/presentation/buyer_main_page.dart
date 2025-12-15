@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:veriaga/features/buyer/home/buyer_home_page.dart';
 import 'package:veriaga/features/buyer/cart/halaman_keranjang.dart';
 import 'package:veriaga/features/buyer/orders/status_pesanan.dart';
+import 'package:veriaga/features/buyer/profile/profil_buyer.dart';
 
 class BuyerMainPage extends StatefulWidget {
   const BuyerMainPage({super.key});
@@ -14,12 +15,11 @@ class BuyerMainPage extends StatefulWidget {
 class _BuyerMainPageState extends State<BuyerMainPage> {
   int _currentIndex = 0;
 
-  // Halaman Sementara (Placeholder)
   final List<Widget> _pages = [
     const BuyerHomePage(), 
     const BuyerCartPage(), 
     const BuyerOrderPage(), 
-    const Center(child: Text("Halaman Profil")),           
+    const BuyerProfilePage(),           
   ];
 
   @override

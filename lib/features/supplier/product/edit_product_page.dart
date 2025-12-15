@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data'; // ✅ Tambahkan ini
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gap/gap.dart';
 
 class EditProductPage extends StatefulWidget {
-  // Kita butuh data produk lama untuk diedit
   final Map<String, dynamic> product;
 
   const EditProductPage({super.key, required this.product});
@@ -24,13 +23,13 @@ class _EditProductPageState extends State<EditProductPage> {
   late TextEditingController _stockController;
   late TextEditingController _categoryController;
 
-  File? _newImageFile;
+  // ✅ GANTI File JADI Uint8List
+  Uint8List? _newImageBytes; 
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    // Isi controller dengan data lama
     _nameController = TextEditingController(text: widget.product['name']);
     _descController = TextEditingController(text: widget.product['description']);
     _priceController = TextEditingController(text: widget.product['price'].toString());
@@ -52,7 +51,9 @@ class _EditProductPageState extends State<EditProductPage> {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
     if (pickedFile != null) {
-      setState(() => _newImageFile = File(pickedFile.path));
+      // ✅ BACA SEBAGAI BYTES
+      final bytes = await pickedFile.readAsBytes();
+      setState(() => _newImageBytes = bytes);
     }
   }
 
@@ -64,21 +65,20 @@ class _EditProductPageState extends State<EditProductPage> {
       final supabase = Supabase.instance.client;
       String? imageUrl = widget.product['image_url'];
 
-      // 1. Jika ada gambar baru, upload dulu
-      if (_newImageFile != null) {
-        final fileExt = _newImageFile!.path.split('.').last;
-        final fileName = '${widget.product['supplier_id']}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+      // 1. Jika ada gambar baru (Bytes), upload binary
+      if (_newImageBytes != null) {
+        final fileName = '${widget.product['supplier_id']}_${DateTime.now().millisecondsSinceEpoch}.jpg';
         
-        await supabase.storage.from('products').upload(
+        await supabase.storage.from('products').uploadBinary(
           fileName,
-          _newImageFile!,
+          _newImageBytes!, // Upload bytes
           fileOptions: const FileOptions(contentType: 'image/jpeg'),
         );
         
         imageUrl = supabase.storage.from('products').getPublicUrl(fileName);
       }
 
-      // 2. Update Data di Database
+      // 2. Update Data
       await supabase.from('products').update({
         'name': _nameController.text.trim(),
         'description': _descController.text.trim(),
@@ -86,12 +86,12 @@ class _EditProductPageState extends State<EditProductPage> {
         'stock': int.parse(_stockController.text),
         'category': _categoryController.text.trim(),
         'image_url': imageUrl,
-        'updated_at': DateTime.now().toIso8601String(), // Update timestamp
+        'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', widget.product['id']);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Produk berhasil diperbarui!")));
-        context.pop(); // Kembali ke list
+        context.pop(); 
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal: $e"), backgroundColor: Colors.red));
@@ -110,7 +110,6 @@ class _EditProductPageState extends State<EditProductPage> {
           key: _formKey,
           child: Column(
             children: [
-              // Preview Gambar (Lama atau Baru)
               GestureDetector(
                 onTap: _pickImage,
                 child: Container(
@@ -121,9 +120,14 @@ class _EditProductPageState extends State<EditProductPage> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.grey),
                   ),
-                  child: _newImageFile != null
-                      ? Image.file(_newImageFile!, fit: BoxFit.cover)
-                      : Image.network(widget.product['image_url'] ?? '', fit: BoxFit.cover, errorBuilder: (_,__,___) => const Icon(Icons.broken_image)),
+                  child: _newImageBytes != null
+                      // ✅ TAMPILKAN DARI MEMORY
+                      ? Image.memory(_newImageBytes!, fit: BoxFit.cover)
+                      : Image.network(
+                          widget.product['image_url'] ?? '', 
+                          fit: BoxFit.cover, 
+                          errorBuilder: (_,__,___) => const Icon(Icons.broken_image)
+                        ),
                 ),
               ),
               const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text("Ketuk gambar untuk mengganti"))),

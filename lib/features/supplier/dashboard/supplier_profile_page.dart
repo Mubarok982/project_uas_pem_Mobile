@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data'; // ✅ Tambahkan ini
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -23,7 +23,9 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
   bool _isLoading = false;
   bool _isInitialLoading = true;
   String? _avatarUrl;
-  File? _newAvatarFile;
+  
+  // ✅ GANTI File JADI Uint8List
+  Uint8List? _newAvatarBytes;
 
   @override
   void initState() {
@@ -31,7 +33,6 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
     _fetchProfile();
   }
 
-  // 1. Ambil Data Profil Saat Ini
   Future<void> _fetchProfile() async {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
@@ -46,7 +47,7 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
         _phoneController.text = data['phone'] ?? '';
         _addressController.text = data['address'] ?? '';
         _cityController.text = data['city'] ?? '';
-        _avatarUrl = data['avatar_url']; // Bisa null kalau belum set
+        _avatarUrl = data['avatar_url'];
         _isInitialLoading = false;
       });
     } catch (e) {
@@ -54,16 +55,16 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
     }
   }
 
-  // 2. Fungsi Ganti Foto Profil
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (picked != null) {
-      setState(() => _newAvatarFile = File(picked.path));
+      // ✅ BACA SEBAGAI BYTES
+      final bytes = await picked.readAsBytes();
+      setState(() => _newAvatarBytes = bytes);
     }
   }
 
-  // 3. Simpan Perubahan
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
@@ -74,19 +75,18 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
     try {
       String? finalAvatarUrl = _avatarUrl;
 
-      // Upload Foto Baru jika ada
-      if (_newAvatarFile != null) {
-        final fileExt = _newAvatarFile!.path.split('.').last;
-        final fileName = 'avatar_${userId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+      // Upload Foto Baru (Binary)
+      if (_newAvatarBytes != null) {
+        final fileName = 'avatar_${userId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
         
-        // Pastikan bucket 'avatars' ada (Nanti kita buat di SQL)
-        // Untuk sekarang kita tumpang di bucket 'products' dulu biar gampang, atau buat bucket baru.
-        // Kita pakai bucket 'products' saja sementara.
-        await supabase.storage.from('products').upload(fileName, _newAvatarFile!);
+        await supabase.storage.from('products').uploadBinary(
+          fileName, 
+          _newAvatarBytes!,
+          fileOptions: const FileOptions(contentType: 'image/jpeg')
+        );
         finalAvatarUrl = supabase.storage.from('products').getPublicUrl(fileName);
       }
 
-      // Update Database
       await supabase.from('profiles').update({
         'shop_name': _shopNameController.text.trim(),
         'phone': _phoneController.text.trim(),
@@ -98,7 +98,7 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profil Toko Berhasil Disimpan!")));
-        context.pop(); // Kembali ke Dashboard
+        context.pop();
       }
     } catch (e) {
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal simpan: $e"), backgroundColor: Colors.red));
@@ -124,7 +124,6 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
           key: _formKey,
           child: Column(
             children: [
-              // Avatar Circle
               GestureDetector(
                 onTap: _pickImage,
                 child: Stack(
@@ -132,10 +131,11 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
                     CircleAvatar(
                       radius: 50,
                       backgroundColor: Colors.grey[200],
-                      backgroundImage: _newAvatarFile != null 
-                        ? FileImage(_newAvatarFile!) 
+                      // ✅ TAMPILKAN DARI MEMORY ATAU URL
+                      backgroundImage: _newAvatarBytes != null 
+                        ? MemoryImage(_newAvatarBytes!) 
                         : (_avatarUrl != null ? NetworkImage(_avatarUrl!) : null) as ImageProvider?,
-                      child: (_newAvatarFile == null && _avatarUrl == null)
+                      child: (_newAvatarBytes == null && _avatarUrl == null)
                           ? const Icon(Icons.store, size: 50, color: Colors.grey)
                           : null,
                     ),
@@ -151,14 +151,13 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
                 ),
               ),
               const Gap(24),
-
+              // ... (SISA KODE SAMA DENGAN YANG LAMA) ...
               TextFormField(
                 controller: _shopNameController,
                 decoration: const InputDecoration(labelText: "Nama Toko", border: OutlineInputBorder(), prefixIcon: Icon(Icons.storefront)),
                 validator: (v) => v!.isEmpty ? "Nama toko wajib diisi" : null,
               ),
               const Gap(16),
-
               TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
@@ -166,22 +165,19 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
                 validator: (v) => v!.isEmpty ? "Nomor telepon wajib diisi" : null,
               ),
               const Gap(16),
-
               TextFormField(
                 controller: _cityController,
                 decoration: const InputDecoration(labelText: "Kota", border: OutlineInputBorder(), prefixIcon: Icon(Icons.location_city)),
                 validator: (v) => v!.isEmpty ? "Kota wajib diisi" : null,
               ),
               const Gap(16),
-
               TextFormField(
                 controller: _addressController,
                 maxLines: 3,
-                decoration: const InputDecoration(labelText: "Alamat Lengkap (Untuk Penjemputan Paket)", border: OutlineInputBorder(), prefixIcon: Icon(Icons.map)),
+                decoration: const InputDecoration(labelText: "Alamat Lengkap", border: OutlineInputBorder(), prefixIcon: Icon(Icons.map)),
                 validator: (v) => v!.isEmpty ? "Alamat wajib diisi" : null,
               ),
               const Gap(30),
-
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -191,21 +187,16 @@ class _SupplierProfilePageState extends State<SupplierProfilePage> {
                     backgroundColor: const Color(0xFF0F172A),
                     foregroundColor: Colors.white,
                   ),
-                  child: _isLoading 
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("SIMPAN PROFIL"),
+                  child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SIMPAN PROFIL"),
                 ),
               ),
               const Gap(24),
-              
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
                 title: const Text("Keluar Aplikasi", style: TextStyle(color: Colors.red)),
                 onTap: _logout,
               ),
-              const Gap(20),
-              const Text("Versi 1.0.0 - Veriaga B2B", style: TextStyle(color: Colors.grey, fontSize: 12)),
             ],
           ),
         ),

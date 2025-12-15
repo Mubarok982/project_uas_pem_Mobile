@@ -4,19 +4,16 @@ import 'package:go_router/go_router.dart';
 // Import semua halaman
 import 'package:veriaga/features/auth/presentation/login_page.dart';
 import 'package:veriaga/features/auth/presentation/register_page.dart';
-import 'package:veriaga/features/supplier/presentation/supplier_main_page.dart'; 
-import 'package:veriaga/features/supplier/presentation/pages/product/add_product_page.dart';
-import 'package:veriaga/features/supplier/presentation/pages/product/edit_product_page.dart'; 
-import 'package:veriaga/features/supplier/presentation/pages/supplier_dispute_page.dart';
-import 'package:veriaga/features/supplier/presentation/pages/supplier_profile_page.dart'; 
-import 'package:veriaga/features/buyer/presentation/buyer_main_page.dart'; // Pastikan import ini ada
+import 'package:veriaga/features/supplier/dashboard/supplier_main_page.dart'; 
+import 'package:veriaga/features/supplier/product/add_product_page.dart';
+import 'package:veriaga/features/supplier/product/edit_product_page.dart'; 
+import 'package:veriaga/features/supplier/manage_product/supplier_dispute_page.dart';
+import 'package:veriaga/features/supplier/dashboard/supplier_profile_page.dart'; 
+import 'package:veriaga/features/buyer/presentation/buyer_main_page.dart'; 
 import 'package:veriaga/features/buyer/cart/buyer_product_detail_page.dart';
 import 'package:veriaga/features/buyer/orders/halaman_checkout.dart';
 import 'package:veriaga/features/buyer/orders/verifikasiAI.dart';
-
-
-
-
+import 'package:veriaga/features/buyer/profile/edit_profil.dart';
 
 
 final appRouter = GoRouter(
@@ -91,6 +88,13 @@ final appRouter = GoRouter(
         final order = state.extra as Map<String, dynamic>;
         return BuyerAiVerificationPage(order: order);
       },
-    )
+    ),
+    GoRoute(
+      path: '/buyer/edit-profile',
+      builder: (context, state) {
+        final currentData = state.extra as Map<String, dynamic>?; // Ambil data lama
+        return BuyerEditProfilePage(currentData: currentData);
+      },
+    ),
   ],
 );

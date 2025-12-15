@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
 
 class BuyerOrderPage extends StatefulWidget {
   const BuyerOrderPage({super.key});
@@ -17,7 +17,8 @@ class _BuyerOrderPageState extends State<BuyerOrderPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // 4 Tab: Belum Bayar, Diproses, Dikirim, Selesai
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -30,70 +31,86 @@ class _BuyerOrderPageState extends State<BuyerOrderPage> with SingleTickerProvid
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Transaksi Saya"),
+        title: const Text("Pesanan Saya"),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: const Color(0xFF0F172A),
-          indicatorColor: const Color(0xFF0F172A),
+          isScrollable: true, // Biar tab-nya bisa digeser kalau sempit
+          labelColor: Colors.blue,
+          indicatorColor: Colors.blue,
           tabs: const [
-            Tab(text: "Berjalan"), // Paid, Shipped, Delivered
-            Tab(text: "Selesai"),  // Completed, Cancelled, Disputed
+            Tab(text: "Belum Bayar"),
+            Tab(text: "Diproses"), // Paid, Packed
+            Tab(text: "Dikirim"),  // Shipped, Delivered
+            Tab(text: "Selesai"),  // Completed, Cancelled
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: const [
-          _OrderList(isActive: true),
-          _OrderList(isActive: false),
+          _BuyerOrderList(statusFilters: ['PENDING']),
+          _BuyerOrderList(statusFilters: ['PAID', 'PACKED', 'paid', 'packed', 'paid_held']),
+          _BuyerOrderList(statusFilters: ['SHIPPED', 'DELIVERED', 'shipped', 'delivered']),
+          _BuyerOrderList(statusFilters: ['COMPLETED', 'CANCELLED', 'DISPUTED', 'completed', 'cancelled']),
         ],
       ),
     );
   }
 }
 
-class _OrderList extends StatelessWidget {
-  final bool isActive;
-  const _OrderList({required this.isActive});
+class _BuyerOrderList extends StatelessWidget {
+  final List<String> statusFilters;
+  const _BuyerOrderList({required this.statusFilters});
 
+  // ✅ STREAM REALTIME KHUSUS BUYER
   Stream<List<Map<String, dynamic>>> _ordersStream() {
-    final userId = Supabase.instance.client.auth.currentUser!.id;
-    
-    final List<String> statuses = isActive 
-        ? ['paid', 'packed', 'shipped', 'delivered'] 
-        : ['completed', 'cancelled', 'disputed', 'resolved_refund', 'resolved_appeal'];
-
+    final myId = Supabase.instance.client.auth.currentUser!.id;
     return Supabase.instance.client
         .from('orders')
         .stream(primaryKey: ['id'])
-        .eq('buyer_id', userId)
+        // Filter: Hanya pesanan milik saya (buyer_id)
+        // Pastikan kolom di DB namanya 'buyer_id' atau 'user_id'
+        .eq('buyer_id', myId) 
         .order('created_at', ascending: false)
-        .map((data) => data.where((order) => statuses.contains(order['status'])).toList());
+        .map((data) => data.where((order) => statusFilters.contains(order['status'])).toList());
   }
 
-  // Helper untuk Warna Status
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'paid': return Colors.orange;
-      case 'shipped': return Colors.blue;
-      case 'delivered': return Colors.purple;
-      case 'completed': return Colors.green;
-      case 'disputed': return Colors.red;
-      case 'cancelled': return Colors.grey;
-      default: return Colors.black;
-    }
-  }
+  Future<void> _confirmReceived(BuildContext context, String orderId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Terima Barang?"),
+        content: const Text("Pastikan barang sudah diterima dengan baik. Dana akan diteruskan ke Penjual."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Batal")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Ya, Terima"),
+          ),
+        ],
+      ),
+    );
 
-  // Helper untuk Teks Status
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'paid': return "Diproses Penjual";
-      case 'shipped': return "Sedang Dikirim";
-      case 'delivered': return "Barang Sampai - Butuh Verifikasi"; // INI PENTING NANTI
-      case 'completed': return "Selesai";
-      case 'disputed': return "Dalam Komplain";
-      case 'cancelled': return "Dibatalkan";
-      default: return status.toUpperCase();
+    if (confirm == true) {
+      try {
+        // Pindah ke Halaman Verifikasi AI (Opsional) atau langsung Selesai
+        // Di sini kita arahkan ke Verifikasi AI sesuai alur aplikasimu
+        
+        // 1. Ambil data order dulu untuk dipassing
+        final orderData = await Supabase.instance.client.from('orders').select().eq('id', orderId).single();
+        
+        if (context.mounted) {
+          context.push('/buyer/verify-ai', extra: orderData);
+        }
+
+        // Kalo mau langsung selesai tanpa AI, pakai kode ini:
+        /*
+        await Supabase.instance.client.from('orders').update({'status': 'COMPLETED'}).eq('id', orderId);
+        */
+
+      } catch (e) {
+        if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
     }
   }
 
@@ -106,11 +123,19 @@ class _OrderList extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(child: Text(isActive ? "Tidak ada pesanan aktif" : "Belum ada riwayat selesai"));
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.shopping_bag_outlined, size: 60, color: Colors.grey),
+                const Gap(10),
+                Text("Tidak ada pesanan di sini", style: TextStyle(color: Colors.grey[600])),
+              ],
+            ),
+          );
         }
 
         final orders = snapshot.data!;
-        final currency = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
 
         return ListView.separated(
           padding: const EdgeInsets.all(16),
@@ -118,9 +143,9 @@ class _OrderList extends StatelessWidget {
           separatorBuilder: (_, __) => const Gap(16),
           itemBuilder: (context, index) {
             final order = orders[index];
-            final status = order['status'] ?? 'unknown';
-            final total = currency.format(order['total_amount']);
-            final date = DateFormat('dd MMM yyyy, HH:mm').format(DateTime.parse(order['created_at']).toLocal());
+            final status = order['status'] as String;
+            final total = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(order['total_amount']);
+            final resi = order['tracking_number'];
 
             return Card(
               elevation: 2,
@@ -130,68 +155,64 @@ class _OrderList extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header: Tanggal & Status
+                    // Header Order ID & Status
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(date, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _getStatusColor(status).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _getStatusText(status),
-                            style: TextStyle(color: _getStatusColor(status), fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                        ),
+                        Text("Order #${order['id'].toString().substring(0, 8)}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        _StatusBadge(status: status),
                       ],
                     ),
                     const Divider(height: 24),
                     
-                    // Body: Total Belanja
+                    // Detail Info
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Icon(Icons.shopping_bag_outlined, color: Colors.grey),
-                        const Gap(12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text("Total Belanja", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                            Text(total, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                          ],
-                        ),
+                        const Text("Total Belanja:"),
+                        Text(total, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       ],
                     ),
                     
-                    // Footer: Tombol Aksi (Nanti di sini kita pasang tombol AI)
-                    if (status == 'delivered') ...[
-                      const Gap(16),
+                    // Tampilkan Resi jika ada
+                    if (resi != null && resi.toString().isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(top: 12),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.local_shipping, size: 16, color: Colors.blue),
+                            const Gap(8),
+                            Expanded(child: Text("Resi: $resi", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
+                          ],
+                        ),
+                      ),
+
+                    const Gap(16),
+
+                    // TOMBOL AKSI (Hanya muncul jika barang dikirim)
+                    if (status == 'SHIPPED' || status == 'shipped' || status == 'DELIVERED' || status == 'delivered')
                       SizedBox(
                         width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            context.push('/buyer/verify-ai', extra: order);
-                          },
-                          icon: const Icon(Icons.camera_alt),
-                          label: const Text("VERIFIKASI BARANG (AI)"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F172A), 
-                            foregroundColor: Colors.white
-                          ),
+                        child: ElevatedButton(
+                          onPressed: () => _confirmReceived(context, order['id']),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                          child: const Text("Barang Diterima & Verifikasi", style: TextStyle(color: Colors.white)),
                         ),
-                      )
-                    ] else if (status == 'shipped') ...[
-                       const Gap(16),
-                       const SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: null, // Disable
-                          child: Text("Menunggu Kurir..."),
-                        ),
-                      )
-                    ]
+                      ),
+                      
+                    // Tombol Komplain (Muncul jika status dikirim/selesai)
+                    if (['SHIPPED', 'DELIVERED', 'COMPLETED'].contains(status))
+                       Center(
+                         child: TextButton(
+                           onPressed: () {
+                             // Fitur komplain nanti
+                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Hubungi Admin untuk komplain")));
+                           },
+                           child: const Text("Ajukan Komplain", style: TextStyle(color: Colors.grey)),
+                         ),
+                       )
                   ],
                 ),
               ),
@@ -199,6 +220,32 @@ class _OrderList extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+class _StatusBadge extends StatelessWidget {
+  final String status;
+  const _StatusBadge({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    Color color;
+    String text;
+    final s = status.toUpperCase();
+
+    if (s == 'PENDING') { color = Colors.grey; text = "BELUM BAYAR"; }
+    else if (s == 'PAID') { color = Colors.orange; text = "DIPROSES"; }
+    else if (s == 'PACKED') { color = Colors.blue; text = "DIKEMAS"; }
+    else if (s == 'SHIPPED') { color = Colors.indigo; text = "DIKIRIM"; }
+    else if (s == 'DELIVERED') { color = Colors.green; text = "SAMPAI"; }
+    else if (s == 'COMPLETED') { color = Colors.green; text = "SELESAI"; }
+    else if (s == 'CANCELLED') { color = Colors.red; text = "DIBATALKAN"; }
+    else { color = Colors.black; text = s; }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 10)),
     );
   }
 }

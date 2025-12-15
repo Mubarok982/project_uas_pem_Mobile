@@ -3,9 +3,17 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
-class SupplierProductPage extends StatelessWidget {
+// ✅ UBAH JADI STATEFUL WIDGET
+class SupplierProductPage extends StatefulWidget {
   const SupplierProductPage({super.key});
 
+  @override
+  State<SupplierProductPage> createState() => _SupplierProductPageState();
+}
+
+class _SupplierProductPageState extends State<SupplierProductPage> {
+  
+  // Stream data produk
   Stream<List<Map<String, dynamic>>> _productsStream() {
     return Supabase.instance.client
         .from('products')
@@ -18,7 +26,7 @@ class SupplierProductPage extends StatelessWidget {
   Future<void> _toggleStatus(String productId, bool currentValue) async {
     await Supabase.instance.client
         .from('products')
-        .update({'is_active': !currentValue}) // Balik nilainya
+        .update({'is_active': !currentValue}) 
         .eq('id', productId);
   }
 
@@ -27,7 +35,15 @@ class SupplierProductPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text("Stok Barang")),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/supplier/add-product'),
+        onPressed: () async {
+          // 1. Tunggu user selesai tambah produk
+          await context.push('/supplier/add-product');
+          
+          // 2. Refresh halaman (Sekarang sudah bisa karena Stateful)
+          if (mounted) {
+            setState(() {}); 
+          }
+        },
         label: const Text("Tambah Produk"),
         icon: const Icon(Icons.add),
         backgroundColor: const Color(0xFF0F172A),
@@ -56,7 +72,6 @@ class SupplierProductPage extends StatelessWidget {
 
               return Card(
                 elevation: 2,
-                // Kalau tidak aktif, warnanya agak pudar
                 color: isActive ? Colors.white : Colors.grey[200],
                 child: ListTile(
                   contentPadding: const EdgeInsets.all(10),
@@ -83,7 +98,7 @@ class SupplierProductPage extends StatelessWidget {
                     product['name'],
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      decoration: isActive ? null : TextDecoration.lineThrough, // Coret kalau nonaktif
+                      decoration: isActive ? null : TextDecoration.lineThrough,
                       color: isActive ? Colors.black : Colors.grey,
                     ),
                   ),
@@ -94,22 +109,19 @@ class SupplierProductPage extends StatelessWidget {
                       Text("Stok: ${product['stock']}"),
                     ],
                   ),
-                  // Bagian Kanan: Switch & Menu
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Switch Aktif/Nonaktif
                       Switch(
                         value: isActive,
                         activeColor: const Color(0xFF0F172A),
                         onChanged: (val) => _toggleStatus(product['id'], isActive),
                       ),
-                      // Menu Edit/Hapus
                       PopupMenuButton(
-                        onSelected: (value) {
+                        onSelected: (value) async {
                           if (value == 'edit') {
-                            // Pindah ke halaman Edit bawa data produk
-                            context.push('/supplier/edit-product', extra: product);
+                            await context.push('/supplier/edit-product', extra: product);
+                            if (mounted) setState(() {}); 
                           } else if (value == 'delete') {
                             _confirmDelete(context, product['id']);
                           }
