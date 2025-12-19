@@ -114,7 +114,7 @@ class _SupplierProductPageState extends State<SupplierProductPage> {
                     children: [
                       Switch(
                         value: isActive,
-                        activeColor: const Color(0xFF0F172A),
+                        activeThumbColor: const Color(0xFF0F172A),
                         onChanged: (val) => _toggleStatus(product['id'], isActive),
                       ),
                       PopupMenuButton(

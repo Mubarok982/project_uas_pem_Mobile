@@ -42,7 +42,7 @@ class _BuyerProductDetailPageState extends State<BuyerProductDetailPage> {
           .select()
           .eq('user_id', userId)
           .eq('product_id', productId)
-          .maybeSingle(); // Pakai maybeSingle biar gak error kalau kosong
+          .maybeSingle(); 
 
       if (existingCartItem != null) {
         // SKENARIO A: Sudah ada -> Update Jumlahnya
@@ -68,23 +68,9 @@ class _BuyerProductDetailPageState extends State<BuyerProductDetailPage> {
         });
       }
 
+      // ✅ NOTIFIKASI DIHAPUS, LANGSUNG KEMBALI
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("Berhasil masuk keranjang!"),
-            backgroundColor: Colors.green,
-            action: SnackBarAction(
-              label: 'LIHAT',
-              textColor: Colors.white,
-              onPressed: () {
-                context.pop(); // Tutup detail
-                // Nanti kita arahkan ke tab Keranjang (Index 1) di sini
-                // Tapi karena kita pakai IndexedStack, kita cukup pop aja dulu
-              },
-            ),
-          ),
-        );
-        context.pop(); // Kembali ke Beranda
+        context.pop(); // Kembali ke halaman sebelumnya
       }
 
     } catch (e) {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:veriaga/features/supplier/dashboard/supplier_home_page.dart';
-import 'package:veriaga/features/supplier/manage_product/supplier_product_page.dart';
-import 'package:veriaga/features/supplier/manage_product/supplier_order_page.dart';
+import 'package:veriaga/features/supplier/dashboard/supplier_home.dart';
+import 'package:veriaga/features/supplier/manage_product/supplier_product.dart';
+import 'package:veriaga/features/supplier/manage_product/supplier_order.dart';
 
 class SupplierMainPage extends StatefulWidget {
   const SupplierMainPage({super.key});

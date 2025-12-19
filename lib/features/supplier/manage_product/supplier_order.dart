@@ -36,14 +36,14 @@ class _SupplierOrderPageState extends State<SupplierOrderPage> with SingleTicker
           labelColor: const Color(0xFF0F172A),
           indicatorColor: const Color(0xFF0F172A),
           tabs: const [
-            Tab(text: "Perlu Proses"),
-            Tab(text: "Dikirim / Selesai"),
+            Tab(text: "Perlu Proses"),      // Tab 1: PAID, PACKED
+            Tab(text: "Dikirim / Selesai"), // Tab 2: SHIPPED, COMPLETED
             Tab(child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.warning_amber_rounded, color: Colors.red, size: 18),
                 SizedBox(width: 4),
-                Text("Komplain", style: TextStyle(color: Colors.red)),
+                Text("Batal / Komplain", style: TextStyle(color: Colors.red)),
               ],
             )),
           ],
@@ -61,7 +61,6 @@ class _SupplierOrderPageState extends State<SupplierOrderPage> with SingleTicker
   }
 }
 
-// ✅ UBAH JADI STATEFUL WIDGET (Supaya Stream Stabil)
 class _OrderList extends StatefulWidget {
   final List<String> statusFilters;
   const _OrderList({required this.statusFilters});
@@ -71,18 +70,17 @@ class _OrderList extends StatefulWidget {
 }
 
 class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMixin {
-  // ✅ Fitur KeepAlive: Tab tidak akan reload/putus saat digeser
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => true; // Agar tab tidak refresh sendiri saat digeser
 
   late final Stream<List<Map<String, dynamic>>> _ordersStream;
 
   @override
   void initState() {
     super.initState();
-    // ✅ Inisialisasi Stream SEKALI SAJA di sini (Anti-Lag)
     final myId = Supabase.instance.client.auth.currentUser!.id;
     
+    // SETUP STREAM ORDER
     _ordersStream = Supabase.instance.client
         .from('orders')
         .stream(primaryKey: ['id'])
@@ -91,26 +89,55 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
         .map((data) => data.where((order) => widget.statusFilters.contains(order['status'])).toList());
   }
 
-  // Logic: Update Status
-  Future<void> _updateStatus(String orderId, String newStatus) async {
+// ✅ UPDATE STATUS DENGAN LOGGING (Untuk Cek Error)
+  Future<void> _updateStatus(String orderId, String newStatus, {bool isCancelling = false}) async {
+    print("👉 TOMBOL DIKLIK! ID: $orderId, Mau ubah ke: $newStatus"); // Log 1
+    
+    final supabase = Supabase.instance.client;
     try {
-      await Supabase.instance.client
+      if (isCancelling) {
+        print("🔄 Mengembalikan stok..."); // Log 2
+        await _returnStock(orderId);
+      }
+
+      print("🚀 Mengirim update ke Database..."); // Log 3
+      await supabase
           .from('orders')
           .update({'status': newStatus})
           .eq('id', orderId);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Status diperbarui!")));
+          
+      print("✅ Update Berhasil di Database!"); // Log 4
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Berhasil update! Tunggu refresh...")));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal: $e")));
+      print("❌ ERROR PARAH: $e"); // Log Error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Gagal: $e"), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+  Future<void> _returnStock(String orderId) async {
+    final supabase = Supabase.instance.client;
+    final items = await supabase.from('order_items').select().eq('order_id', orderId);
+    for (var item in items) {
+      final productId = item['product_id'];
+      final qty = item['quantity'] as int;
+      final product = await supabase.from('products').select('stock').eq('id', productId).single();
+      final currentStock = product['stock'] as int;
+      await supabase.from('products').update({'stock': currentStock + qty}).eq('id', productId);
     }
   }
 
-  // Logic: Input Resi
-  void _showInputResiDialog(String orderId) {
-    final resiController = TextEditingController();
+  void _showInputResiDialog(String orderId, String? currentResi) {
+    final resiController = TextEditingController(text: currentResi);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Masukkan Nomor Resi"),
+        title: Text(currentResi == null ? "Masukkan Nomor Resi" : "Edit Nomor Resi"),
         content: TextField(
           controller: resiController,
           decoration: const InputDecoration(hintText: "Contoh: JNE12345678"),
@@ -121,20 +148,16 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
             onPressed: () async {
               if (resiController.text.isNotEmpty) {
                 Navigator.pop(ctx);
-                try {
-                  await Supabase.instance.client
-                      .from('orders')
-                      .update({
-                        'status': 'SHIPPED',
-                        'tracking_number': resiController.text.trim()
-                      })
-                      .eq('id', orderId);
-                } catch (e) {
-                  // Error handled by stream
-                }
+                await Supabase.instance.client
+                    .from('orders')
+                    .update({
+                      'status': 'SHIPPED',
+                      'tracking_number': resiController.text.trim()
+                    })
+                    .eq('id', orderId);
               }
             },
-            child: const Text("Kirim Barang"),
+            child: const Text("Simpan"),
           ),
         ],
       ),
@@ -143,7 +166,7 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Wajib panggil ini untuk KeepAlive
+    super.build(context);
     
     return StreamBuilder(
       stream: _ordersStream,
@@ -152,16 +175,7 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
           return const Center(child: CircularProgressIndicator());
         }
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.inbox, size: 50, color: Colors.grey),
-                const Gap(8),
-                Text("Tidak ada pesanan", style: TextStyle(color: Colors.grey[600])),
-              ],
-            ),
-          );
+          return Center(child: Text("Tidak ada pesanan di tab ini", style: TextStyle(color: Colors.grey[600])));
         }
 
         final orders = snapshot.data!;
@@ -198,34 +212,98 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
                     Text("Total: $total", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     
                     if (['SHIPPED', 'DELIVERED', 'COMPLETED'].contains(status))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Text("Resi: $resi", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.local_shipping, size: 16, color: Colors.blue),
+                            const Gap(8),
+                            Expanded(child: Text("Resi: $resi", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
+                          ],
+                        ),
                       ),
 
                     const Gap(16),
                     
+                    // --- TOMBOL AKSI LENGKAP ---
+                    
+                    // 1. BARU -> TERIMA (Paid -> Packed)
                     if (status == 'PAID' || status == 'PAID_HELD')
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => _updateStatus(order['id'], 'PACKED'), 
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                          child: const Text("Terima & Kemas", style: TextStyle(color: Colors.white)),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _updateStatus(order['id'], 'CANCELLED', isCancelling: true), 
+                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
+                              child: const Text("Tolak"),
+                            ),
+                          ),
+                          const Gap(12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _updateStatus(order['id'], 'PACKED'), 
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                              child: const Text("Proses Pesanan", style: TextStyle(color: Colors.white)),
+                            ),
+                          ),
+                        ],
                       ),
                     
+                    // 2. DIKEMAS -> KIRIM (Packed -> Shipped)
                     if (status == 'PACKED')
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () => _showInputResiDialog(order['id']),
+                          onPressed: () => _showInputResiDialog(order['id'], null),
                           icon: const Icon(Icons.local_shipping, color: Colors.white),
                           label: const Text("Input Resi & Kirim", style: TextStyle(color: Colors.white)),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                         ),
                       ),
 
+                    // 3. DIKIRIM (Shipped) -> Menunggu Buyer
+                    if (status == 'SHIPPED')
+                      Column(
+                        children: [
+                          const SizedBox(
+                            width: double.infinity,
+                            child: Text(
+                              "⏳ Menunggu konfirmasi pembeli...", 
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+                            ),
+                          ),
+                          const Gap(8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showInputResiDialog(order['id'], resi), // Bisa edit resi
+                              icon: const Icon(Icons.edit),
+                              label: const Text("Edit Resi"),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                    // 4. SELESAI (Completed)
+                    if (status == 'COMPLETED')
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.green),
+                            Gap(8),
+                            Text("Transaksi Selesai", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+
+                    // 5. KOMPLAIN (Disputed)
                     if (status == 'DISPUTED')
                       SizedBox(
                         width: double.infinity,

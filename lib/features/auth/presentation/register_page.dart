@@ -146,7 +146,7 @@ class _RegisterPageState extends State<RegisterPage> {
               const Gap(8),
 
               DropdownButtonFormField<String>(
-                value: _selectedRole,
+                initialValue: _selectedRole,
                 items: const [
                   DropdownMenuItem(
                     value: 'buyer',

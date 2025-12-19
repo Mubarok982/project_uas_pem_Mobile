@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 // Nanti kita import halaman-halamannya di sini
-import 'package:veriaga/features/buyer/home/buyer_home_page.dart';
+import 'package:veriaga/features/buyer/home/buyer_dashboard.dart';
 import 'package:veriaga/features/buyer/cart/halaman_keranjang.dart';
 import 'package:veriaga/features/buyer/orders/status_pesanan.dart';
 import 'package:veriaga/features/buyer/profile/profil_buyer.dart';
@@ -17,7 +17,7 @@ class _BuyerMainPageState extends State<BuyerMainPage> {
 
   final List<Widget> _pages = [
     const BuyerHomePage(), 
-    const BuyerCartPage(), 
+    const HalamanKeranjang(), 
     const BuyerOrderPage(), 
     const BuyerProfilePage(),           
   ];

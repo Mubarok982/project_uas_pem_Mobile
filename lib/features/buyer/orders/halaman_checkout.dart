@@ -78,7 +78,6 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
 
           final productIds = rawCartItems.map((item) => item['product_id']).toList();
 
-          // Menggunakan .inFilter untuk mengambil detail produk
           final products = await supabase
               .from('products')
               .select()
@@ -128,6 +127,7 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
       if (_cartItems.isEmpty) return;
 
       // 1. CEK STOK DULU (Validasi)
+      // Jangan sampai beli barang ghoib (stok habis tapi lolos)
       for (var item in _cartItems) {
         final product = item['products'];
         final qty = item['quantity'] as int;
@@ -154,7 +154,7 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
 
       final orderId = orderRes['id'];
 
-      // 3. Masukkan Item Order & KURANGI STOK
+      // 3. Proses Item Order & KURANGI STOK
       for (var item in _cartItems) {
         final product = item['products'];
         final qty = item['quantity'] as int;
@@ -168,7 +168,8 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
           'price_at_purchase': product['price'],
         });
 
-        // B. UPDATE STOK PRODUK (Kurangi Stok)
+        // ✅ B. UPDATE STOK PRODUK (Kurangi Stok)
+        // Ini bagian yang tadi mungkin terlewat
         final newStock = currentStock - qty;
         await supabase.from('products').update({
           'stock': newStock
@@ -183,17 +184,17 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
         'payment_method': 'Virtual Account (Simulasi)',
       });
 
-      // 5. HAPUS KERANJANG (Barang hilang dari cart)
+      // 5. HAPUS KERANJANG
       await supabase.from('cart_items').delete().eq('user_id', userId);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pembayaran Berhasil! Stok berkurang.")));
-        context.go('/dashboard'); 
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pembayaran Berhasil!")));
+        context.go('/dashboard'); // Balik ke Home
       }
 
     } catch (e) {
       if (mounted) {
-        // Bersihkan pesan error biar rapi (hapus Exception:)
+        // Rapihkan pesan error
         final message = e.toString().replaceAll('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Gagal: $message"), backgroundColor: Colors.red)

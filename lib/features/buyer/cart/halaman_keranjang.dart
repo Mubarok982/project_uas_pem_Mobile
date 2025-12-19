@@ -1,241 +1,257 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 
-class BuyerCartPage extends StatefulWidget {
-  const BuyerCartPage({super.key});
+class HalamanKeranjang extends StatefulWidget {
+  const HalamanKeranjang({super.key});
 
   @override
-  State<BuyerCartPage> createState() => _BuyerCartPageState();
+  State<HalamanKeranjang> createState() => _HalamanKeranjangState();
 }
 
-class _BuyerCartPageState extends State<BuyerCartPage> {
-  // Stream Keranjang dengan Relasi ke Produk
-  Stream<List<Map<String, dynamic>>> _cartStream() {
-    final userId = Supabase.instance.client.auth.currentUser!.id;
+class _HalamanKeranjangState extends State<HalamanKeranjang> {
+  bool _isInitialLoading = true;
+  List<Map<String, dynamic>> _cartItems = [];
+  double _totalPrice = 0;
+  
+  // Listener Realtime
+  StreamSubscription? _cartSubscription;
 
-    return Supabase.instance.client
+  @override
+  void initState() {
+    super.initState();
+    _setupRealtimeCart();
+  }
+
+  @override
+  void dispose() {
+    _cartSubscription?.cancel();
+    super.dispose();
+  }
+
+  // ✅ LOGIC REALTIME YANG CEPAT (Sama seperti Checkout)
+  void _setupRealtimeCart() {
+    final supabase = Supabase.instance.client;
+    final userId = supabase.auth.currentUser!.id;
+
+    _cartSubscription = supabase
         .from('cart_items')
         .stream(primaryKey: ['id'])
         .eq('user_id', userId)
-        .order('created_at')
-        // HAPUS BAGIAN .map() YANG LAMA, LANGSUNG KE asyncMap
-        .asyncMap((data) async {
-          final List<Map<String, dynamic>> enrichedData = [];
+        .order('created_at', ascending: false) // Barang baru di atas
+        .listen((List<Map<String, dynamic>> rawCartItems) async {
           
-          // Loop data keranjang
-          for (var item in data) {
-            // Fetch manual data produk berdasarkan product_id
-            final product = await Supabase.instance.client
-                .from('products')
-                .select()
-                .eq('id', item['product_id'])
-                .single(); // Ambil 1 data produk
-            
-            // Gabungkan data keranjang + data produk
-            final newItem = Map<String, dynamic>.from(item);
-            newItem['products'] = product; 
-            enrichedData.add(newItem);
+          if (rawCartItems.isEmpty) {
+            if (mounted) {
+              setState(() {
+                _cartItems = [];
+                _totalPrice = 0;
+                _isInitialLoading = false;
+              });
+            }
+            return;
           }
+
+          // Ambil semua detail produk sekaligus (Batch Fetch) biar ngebut 🚀
+          final productIds = rawCartItems.map((item) => item['product_id']).toList();
           
-          return enrichedData;
+          final products = await supabase
+              .from('products')
+              .select()
+              .inFilter('id', productIds);
+
+          List<Map<String, dynamic>> enrichedItems = [];
+          double tempTotal = 0;
+
+          for (var cartItem in rawCartItems) {
+            // Gabungkan data keranjang dengan data produk
+            final matchingProducts = products.where((p) => p['id'] == cartItem['product_id']);
+            final product = matchingProducts.isNotEmpty ? matchingProducts.first : null;
+
+            if (product != null) {
+              final qty = cartItem['quantity'] as int;
+              final price = product['price'] as int;
+              tempTotal += (qty * price);
+
+              final newItem = Map<String, dynamic>.from(cartItem);
+              newItem['products'] = product; // Masukkan object produk
+              enrichedItems.add(newItem);
+            }
+          }
+
+          if (mounted) {
+            setState(() {
+              _cartItems = enrichedItems;
+              _totalPrice = tempTotal;
+              _isInitialLoading = false;
+            });
+          }
+        }, onError: (e) {
+          if (mounted) setState(() => _isInitialLoading = false);
+          debugPrint("Error Stream Keranjang: $e");
         });
   }
 
-  // Fungsi Update Qty
-  Future<void> _updateQty(String cartId, int currentQty, int change, int maxStock) async {
-    final newQty = currentQty + change;
-    if (newQty < 1) return; // Minimal 1
-    if (newQty > maxStock) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Stok tidak mencukupi")));
-      }
-      return;
-    }
-
-    await Supabase.instance.client
-        .from('cart_items')
-        .update({'quantity': newQty})
-        .eq('id', cartId);
-  }
-
-  // Fungsi Hapus Item
+  // Logic Hapus Item
   Future<void> _deleteItem(String cartId) async {
     await Supabase.instance.client.from('cart_items').delete().eq('id', cartId);
+    // Tidak perlu setState, Stream akan otomatis update UI
+  }
+
+  // Logic Update Jumlah (+ / -)
+  Future<void> _updateQty(String cartId, int currentQty, int delta, int maxStock) async {
+    final newQty = currentQty + delta;
+    if (newQty > 0 && newQty <= maxStock) {
+      // Optimistic UI (opsional): Bisa setState dulu biar terasa instan, tapi Stream usually fast enough
+      await Supabase.instance.client
+          .from('cart_items')
+          .update({'quantity': newQty})
+          .eq('id', cartId);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final currency = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
+
     return Scaffold(
       appBar: AppBar(title: const Text("Keranjang Belanja")),
-      body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: _cartStream(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (snapshot.hasError) {
-             return Center(child: Text("Error: ${snapshot.error}"));
-          }
+      body: _isInitialLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : _cartItems.isEmpty
+              ? const Center(child: Text("Keranjang masih kosong"))
+              : Column(
+                  children: [
+                    // LIST ITEM
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _cartItems.length,
+                        separatorBuilder: (_,__) => const Gap(12),
+                        itemBuilder: (context, index) {
+                          final item = _cartItems[index];
+                          final product = item['products'];
+                          final qty = item['quantity'] as int;
+                          final maxStock = product['stock'] as int;
 
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.shopping_cart_outlined, size: 80, color: Colors.grey[300]),
-                  const Gap(16),
-                  const Text("Keranjang kamu kosong"),
-                  TextButton(
-                    onPressed: () {
-                      // Logic pindah tab manual (opsional, bisa dikosongkan)
-                    }, 
-                    child: const Text("Mulai Belanja")
-                  )
-                ],
-              ),
-            );
-          }
-
-          final cartItems = snapshot.data!;
-          
-          // Hitung Total Harga
-          double totalPrice = 0;
-          for (var item in cartItems) {
-            final qty = item['quantity'] as int;
-            // Pastikan produk tidak null (jaga-jaga kalau produk dihapus supplier)
-            if (item['products'] != null) {
-               final price = item['products']['price'] as num;
-               totalPrice += (qty * price);
-            }
-          }
-
-          return Column(
-            children: [
-              // List Item
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: cartItems.length,
-                  separatorBuilder: (_,__) => const Gap(12),
-                  itemBuilder: (context, index) {
-                    final item = cartItems[index];
-                    final product = item['products'];
-                    
-                    // Jaga-jaga jika produk dihapus supplier
-                    if (product == null) return const SizedBox();
-
-                    final qty = item['quantity'] as int;
-                    final price = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0)
-                        .format(product['price']);
-                    
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            // Gambar Produk
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                product['image_url'] ?? '',
-                                width: 70, height: 70, fit: BoxFit.cover,
-                                errorBuilder: (_,__,___) => Container(width: 70, height: 70, color: Colors.grey[200]),
-                              ),
-                            ),
-                            const Gap(12),
-                            
-                            // Info & Kontrol
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          return Card(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 2,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
                                 children: [
-                                  Text(product['name'], style: const TextStyle(fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  Text(price, style: const TextStyle(color: Colors.green)),
-                                  const Gap(8),
-                                  Row(
+                                  // Gambar Kecil
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      product['image_url'] ?? '',
+                                      width: 70, height: 70, fit: BoxFit.cover,
+                                      errorBuilder: (_,__,___) => Container(width: 70, height: 70, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
+                                    ),
+                                  ),
+                                  const Gap(16),
+                                  
+                                  // Info Produk
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(product['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        Text(currency.format(product['price']), style: const TextStyle(color: Colors.grey)),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Kontrol Qty & Delete
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      // Tombol Kurang
-                                      InkWell(
-                                        onTap: () => _updateQty(item['id'], qty, -1, product['stock']),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(4)),
-                                          child: const Icon(Icons.remove, size: 16),
-                                        ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                        onPressed: () => _deleteItem(item['id']),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
                                       ),
-                                      const Gap(12),
-                                      Text("$qty", style: const TextStyle(fontWeight: FontWeight.bold)),
-                                      const Gap(12),
-                                      // Tombol Tambah
-                                      InkWell(
-                                        onTap: () => _updateQty(item['id'], qty, 1, product['stock']),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(4)),
-                                          child: const Icon(Icons.add, size: 16),
+                                      const Gap(8),
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[100],
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.grey[300]!)
                                         ),
-                                      ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            _QtyBtn(icon: Icons.remove, onTap: () => _updateQty(item['id'], qty, -1, maxStock)),
+                                            Text("$qty", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                            _QtyBtn(icon: Icons.add, onTap: () => _updateQty(item['id'], qty, 1, maxStock)),
+                                          ],
+                                        ),
+                                      )
                                     ],
                                   )
                                 ],
                               ),
                             ),
-                            
-                            // Tombol Hapus (Sampah)
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.red),
-                              onPressed: () => _deleteItem(item['id']),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
-              ),
-
-              // Bagian Bawah: Total & Checkout
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0,-4))],
-                ),
-                child: Row(
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("Total Pembayaran", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                        Text(
-                          NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(totalPrice),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                      ],
                     ),
-                    const Spacer(),
-                    ElevatedButton(
-                      onPressed: () {
-                        // LANJUT KE CHECKOUT
-                        context.push('/buyer/checkout'); 
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0F172A),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+
+                    // BOTTOM BAR (Total & Checkout)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -4))],
                       ),
-                      child: const Text("Checkout"),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("Total Belanja", style: TextStyle(color: Colors.grey)),
+                                Text(currency.format(_totalPrice), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => context.push('/buyer/checkout'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0F172A),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text("Checkout"),
+                          ),
+                        ],
+                      ),
                     )
                   ],
                 ),
-              )
-            ],
-          );
-        },
+    );
+  }
+}
+
+// Widget Kecil untuk Tombol + -
+class _QtyBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _QtyBtn({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Icon(icon, size: 16, color: Colors.black87),
       ),
     );
   }

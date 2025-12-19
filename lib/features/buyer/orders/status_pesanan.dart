@@ -17,7 +17,6 @@ class _BuyerOrderPageState extends State<BuyerOrderPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    // 4 Tab: Belum Bayar, Diproses, Dikirim, Selesai
     _tabController = TabController(length: 4, vsync: this);
   }
 
@@ -34,53 +33,65 @@ class _BuyerOrderPageState extends State<BuyerOrderPage> with SingleTickerProvid
         title: const Text("Pesanan Saya"),
         bottom: TabBar(
           controller: _tabController,
-          isScrollable: true, // Biar tab-nya bisa digeser kalau sempit
+          isScrollable: true,
           labelColor: Colors.blue,
           indicatorColor: Colors.blue,
           tabs: const [
             Tab(text: "Belum Bayar"),
-            Tab(text: "Diproses"), // Paid, Packed
-            Tab(text: "Dikirim"),  // Shipped, Delivered
-            Tab(text: "Selesai"),  // Completed, Cancelled
+            Tab(text: "Diproses"), 
+            Tab(text: "Dikirim"),
+            Tab(text: "Selesai"),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: const [
-          _BuyerOrderList(statusFilters: ['PENDING']),
-          _BuyerOrderList(statusFilters: ['PAID', 'PACKED', 'paid', 'packed', 'paid_held']),
-          _BuyerOrderList(statusFilters: ['SHIPPED', 'DELIVERED', 'shipped', 'delivered']),
-          _BuyerOrderList(statusFilters: ['COMPLETED', 'CANCELLED', 'DISPUTED', 'completed', 'cancelled']),
+          _BuyerOrderList(statusFilters: ['PENDING', 'paid', 'PAID']), // Handle variasi huruf
+          _BuyerOrderList(statusFilters: ['PACKED', 'packed', 'paid_held']),
+          _BuyerOrderList(statusFilters: ['SHIPPED', 'shipped', 'DELIVERED', 'delivered']),
+          _BuyerOrderList(statusFilters: ['COMPLETED', 'completed', 'CANCELLED', 'cancelled', 'DISPUTED', 'disputed']),
         ],
       ),
     );
   }
 }
 
-class _BuyerOrderList extends StatelessWidget {
+// ✅ UBAH JADI STATEFUL AGAR STREAM STABIL (KeepAlive)
+class _BuyerOrderList extends StatefulWidget {
   final List<String> statusFilters;
   const _BuyerOrderList({required this.statusFilters});
 
-  // ✅ STREAM REALTIME KHUSUS BUYER
-  Stream<List<Map<String, dynamic>>> _ordersStream() {
+  @override
+  State<_BuyerOrderList> createState() => _BuyerOrderListState();
+}
+
+class _BuyerOrderListState extends State<_BuyerOrderList> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true; // Tab tidak reload saat digeser
+
+  late final Stream<List<Map<String, dynamic>>> _ordersStream;
+
+  @override
+  void initState() {
+    super.initState();
     final myId = Supabase.instance.client.auth.currentUser!.id;
-    return Supabase.instance.client
+    
+    // Setup Stream Realtime
+    _ordersStream = Supabase.instance.client
         .from('orders')
         .stream(primaryKey: ['id'])
-        // Filter: Hanya pesanan milik saya (buyer_id)
-        // Pastikan kolom di DB namanya 'buyer_id' atau 'user_id'
-        .eq('buyer_id', myId) 
+        .eq('buyer_id', myId) // Pastikan ini 'buyer_id'
         .order('created_at', ascending: false)
-        .map((data) => data.where((order) => statusFilters.contains(order['status'])).toList());
+        .map((data) => data.where((order) => widget.statusFilters.contains(order['status'])).toList());
   }
 
-  Future<void> _confirmReceived(BuildContext context, String orderId) async {
+  Future<void> _confirmReceived(String orderId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Terima Barang?"),
-        content: const Text("Pastikan barang sudah diterima dengan baik. Dana akan diteruskan ke Penjual."),
+        content: const Text("Pastikan barang sudah diterima. Dana akan diteruskan ke Penjual."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Batal")),
           ElevatedButton(
@@ -92,32 +103,29 @@ class _BuyerOrderList extends StatelessWidget {
     );
 
     if (confirm == true) {
+      // Ambil data dulu baru pindah ke Verifikasi AI
       try {
-        // Pindah ke Halaman Verifikasi AI (Opsional) atau langsung Selesai
-        // Di sini kita arahkan ke Verifikasi AI sesuai alur aplikasimu
-        
-        // 1. Ambil data order dulu untuk dipassing
-        final orderData = await Supabase.instance.client.from('orders').select().eq('id', orderId).single();
-        
-        if (context.mounted) {
+        final orderData = await Supabase.instance.client
+            .from('orders')
+            .select()
+            .eq('id', orderId)
+            .single();
+            
+        if (mounted) {
           context.push('/buyer/verify-ai', extra: orderData);
         }
-
-        // Kalo mau langsung selesai tanpa AI, pakai kode ini:
-        /*
-        await Supabase.instance.client.from('orders').update({'status': 'COMPLETED'}).eq('id', orderId);
-        */
-
       } catch (e) {
-        if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+    
     return StreamBuilder(
-      stream: _ordersStream(),
+      stream: _ordersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -129,7 +137,7 @@ class _BuyerOrderList extends StatelessWidget {
               children: [
                 const Icon(Icons.shopping_bag_outlined, size: 60, color: Colors.grey),
                 const Gap(10),
-                Text("Tidak ada pesanan di sini", style: TextStyle(color: Colors.grey[600])),
+                Text("Tidak ada pesanan", style: TextStyle(color: Colors.grey[600])),
               ],
             ),
           );
@@ -143,7 +151,7 @@ class _BuyerOrderList extends StatelessWidget {
           separatorBuilder: (_, __) => const Gap(16),
           itemBuilder: (context, index) {
             final order = orders[index];
-            final status = order['status'] as String;
+            final status = (order['status'] as String).toUpperCase();
             final total = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(order['total_amount']);
             final resi = order['tracking_number'];
 
@@ -155,7 +163,6 @@ class _BuyerOrderList extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header Order ID & Status
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -165,7 +172,6 @@ class _BuyerOrderList extends StatelessWidget {
                     ),
                     const Divider(height: 24),
                     
-                    // Detail Info
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -174,7 +180,6 @@ class _BuyerOrderList extends StatelessWidget {
                       ],
                     ),
                     
-                    // Tampilkan Resi jika ada
                     if (resi != null && resi.toString().isNotEmpty)
                       Container(
                         margin: const EdgeInsets.only(top: 12),
@@ -191,28 +196,19 @@ class _BuyerOrderList extends StatelessWidget {
 
                     const Gap(16),
 
-                    // TOMBOL AKSI (Hanya muncul jika barang dikirim)
-                    if (status == 'SHIPPED' || status == 'shipped' || status == 'DELIVERED' || status == 'delivered')
+                    // TOMBOL TERIMA (Hanya di tab Dikirim)
+                    if (status == 'SHIPPED' || status == 'DELIVERED')
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () => _confirmReceived(context, order['id']),
+                          onPressed: () => _confirmReceived(order['id']),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                           child: const Text("Barang Diterima & Verifikasi", style: TextStyle(color: Colors.white)),
                         ),
                       ),
                       
-                    // Tombol Komplain (Muncul jika status dikirim/selesai)
-                    if (['SHIPPED', 'DELIVERED', 'COMPLETED'].contains(status))
-                       Center(
-                         child: TextButton(
-                           onPressed: () {
-                             // Fitur komplain nanti
-                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Hubungi Admin untuk komplain")));
-                           },
-                           child: const Text("Ajukan Komplain", style: TextStyle(color: Colors.grey)),
-                         ),
-                       )
+                    if (status == 'COMPLETED')
+                       const Center(child: Text("Transaksi Selesai ✅", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
                   ],
                 ),
               ),
@@ -223,6 +219,7 @@ class _BuyerOrderList extends StatelessWidget {
     );
   }
 }
+
 class _StatusBadge extends StatelessWidget {
   final String status;
   const _StatusBadge({required this.status});
@@ -240,6 +237,7 @@ class _StatusBadge extends StatelessWidget {
     else if (s == 'DELIVERED') { color = Colors.green; text = "SAMPAI"; }
     else if (s == 'COMPLETED') { color = Colors.green; text = "SELESAI"; }
     else if (s == 'CANCELLED') { color = Colors.red; text = "DIBATALKAN"; }
+    else if (s == 'DISPUTED') { color = Colors.red; text = "KOMPLAIN"; }
     else { color = Colors.black; text = s; }
 
     return Container(
