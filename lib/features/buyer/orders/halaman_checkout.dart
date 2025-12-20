@@ -21,13 +21,16 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
   List<Map<String, dynamic>> _cartItems = [];
   double _totalProductPrice = 0;
   final double _shippingCost = 15000;
+  
+  // Variabel untuk menyimpan saldo saat ini (untuk tampilan)
+  double _currentBalance = 0;
 
   StreamSubscription? _cartSubscription;
 
   @override
   void initState() {
     super.initState();
-    _fetchAddress();
+    _fetchUserData(); // Ganti nama fungsi biar sekalian ambil saldo
     _setupRealtimeCart();
   }
 
@@ -38,20 +41,27 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
     super.dispose();
   }
 
-  Future<void> _fetchAddress() async {
+  // Ambil Alamat & Saldo User
+  Future<void> _fetchUserData() async {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
       final profile = await Supabase.instance.client
           .from('profiles')
-          .select()
+          .select('address, city, balance') // Ambil balance juga
           .eq('id', userId)
           .single();
       
-      if (profile['address'] != null) {
-        _addressController.text = "${profile['address']}, ${profile['city'] ?? ''}";
+      if (mounted) {
+        setState(() {
+          if (profile['address'] != null) {
+            _addressController.text = "${profile['address']}, ${profile['city'] ?? ''}";
+          }
+          // Simpan saldo ke variabel state
+          _currentBalance = (profile['balance'] ?? 0).toDouble();
+        });
       }
     } catch (e) {
-      // Ignore
+      // Ignore error fetch profile
     }
   }
 
@@ -113,32 +123,24 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
         });
   }
 
-  // ✅ LOGIC BARU: Cek apakah user punya order 'menggantung' (Sampai tapi belum Selesai)
-  // ✅ GANTI FUNGSI INI DI DALAM buyer_checkout_page.dart
- // ✅ LOGIC UPDATE: Cek Case-Insensitive (Huruf besar/kecil tetap kena)
   Future<bool> _checkBlockingOrders() async {
     final supabase = Supabase.instance.client;
     final userId = supabase.auth.currentUser!.id;
 
     try {
-      // Kita pakai .or untuk menangkap 'DELIVERED', 'delivered', atau 'Delivered'
-      // Supaya kalau ada beda penulisan di DB tetap terblokir
       final List blockedOrders = await supabase
           .from('orders')
           .select('id, status')
           .eq('buyer_id', userId)
-          .or('status.eq.DELIVERED,status.eq.delivered,status.eq.Delivered'); 
+          .or('status.eq.DELIVERED,status.eq.delivered'); 
       
-      // Debugging: Cek di terminal apakah ketemu
-      print("🔍 Cek Blokir: Ditemukan ${blockedOrders.length} order status DELIVERED");
-
       return blockedOrders.isNotEmpty;
     } catch (e) {
-      print("❌ Error Cek Blokir: $e");
       return false; 
     }
   }
 
+  // ✅ LOGIC UTAMA: Bayar Potong Saldo
   Future<void> _processPayment() async {
     if (_addressController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Alamat pengiriman wajib diisi!")));
@@ -147,43 +149,32 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
     
     setState(() => _isLoadingPayment = true);
 
-    // ✅ 1. CEK BLOCKING ORDER SEBELUM LANJUT
+    // 1. Cek Blokir Order
     bool isBlocked = await _checkBlockingOrders();
-    
     if (isBlocked) {
       setState(() => _isLoadingPayment = false);
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Selesaikan Pesanan Dulu! ⚠️"),
-            content: const Text("Kamu memiliki pesanan yang statusnya 'Sampai' tapi belum diverifikasi/diselesaikan.\n\nHarap selesaikan pesanan sebelumnya agar bisa membuat pesanan baru."),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx), 
-                child: const Text("Tutup")
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  context.go('/dashboard'); // Arahkan ke Pesanan Saya
-                },
-                child: const Text("Ke Pesanan Saya"),
-              ),
-            ],
-          ),
-        );
-      }
-      return; // ⛔ BERHENTI DI SINI
+      if (mounted) _showBlockedDialog();
+      return; 
     }
 
     final supabase = Supabase.instance.client;
     final userId = supabase.auth.currentUser!.id;
+    final totalAmount = _totalProductPrice + _shippingCost;
+    final currency = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
 
     try {
       if (_cartItems.isEmpty) return;
 
-      // 2. CEK STOK DULU (Validasi)
+      // ✅ 2. CEK SALDO REALTIME (Ambil data terbaru dari DB biar akurat)
+      final profileRes = await supabase.from('profiles').select('balance').eq('id', userId).single();
+      final double latestBalance = (profileRes['balance'] ?? 0).toDouble();
+
+      // ✅ 3. VALIDASI: Apakah Saldo Cukup?
+      if (latestBalance < totalAmount) {
+        throw Exception("Saldo tidak cukup! Saldo Anda hanya ${currency.format(latestBalance)}");
+      }
+
+      // 4. Cek Stok Produk
       for (var item in _cartItems) {
         final product = item['products'];
         final qty = item['quantity'] as int;
@@ -195,28 +186,31 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
       }
       
       final supplierId = _cartItems.first['products']['supplier_id']; 
-      final totalAmount = _totalProductPrice + _shippingCost;
       
-      // 3. Buat Order
+      // ✅ 5. POTONG SALDO USER
+      await supabase.from('profiles').update({
+        'balance': latestBalance - totalAmount
+      }).eq('id', userId);
+
+      // 6. Buat Order
       final orderRes = await supabase.from('orders').insert({
         'buyer_id': userId,
         'supplier_id': supplierId,
         'total_amount': totalAmount,
         'shipping_address': _addressController.text,
         'shipping_cost': _shippingCost,
-        'status': 'paid', // Status awal
+        'status': 'paid', 
         'created_at': DateTime.now().toIso8601String(),
       }).select().single();
 
       final orderId = orderRes['id'];
 
-      // 4. Proses Item Order & KURANGI STOK
+      // 7. Proses Item & Kurangi Stok
       for (var item in _cartItems) {
         final product = item['products'];
         final qty = item['quantity'] as int;
         final currentStock = product['stock'] as int;
         
-        // A. Insert ke tabel order_items
         await supabase.from('order_items').insert({
           'order_id': orderId,
           'product_id': product['id'],
@@ -224,34 +218,40 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
           'price_at_purchase': product['price'],
         });
 
-        // B. UPDATE STOK PRODUK (Kurangi Stok)
-        final newStock = currentStock - qty;
         await supabase.from('products').update({
-          'stock': newStock
+          'stock': currentStock - qty
         }).eq('id', product['id']);
       }
 
-      // 5. Catat Transaksi
+      // 8. Catat Transaksi (Metode: Saldo Veriaga)
       await supabase.from('transactions').insert({
         'order_id': orderId,
         'amount': totalAmount,
         'status': 'paid_held',
-        'payment_method': 'Virtual Account (Simulasi)',
+        'payment_method': 'Saldo Veriaga', // ✅ Ubah metode pembayaran
       });
 
-      // 6. HAPUS KERANJANG
+      // 9. Hapus Keranjang
       await supabase.from('cart_items').delete().eq('user_id', userId);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pembayaran Berhasil!")));
-        context.go('/dashboard'); // Balik ke Home
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pembayaran Berhasil! Saldo berkurang.")));
+        context.go('/dashboard'); 
       }
 
     } catch (e) {
       if (mounted) {
         final message = e.toString().replaceAll('Exception: ', '');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Gagal: $message"), backgroundColor: Colors.red)
+        // Tampilkan dialog error yang jelas (terutama kalau saldo kurang)
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("Pembayaran Gagal"),
+            content: Text(message),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))
+            ],
+          ),
         );
       }
     } finally {
@@ -259,16 +259,39 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
     }
   }
 
+  void _showBlockedDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Selesaikan Pesanan Dulu! ⚠️"),
+        content: const Text("Ada pesanan yang statusnya 'Sampai' tapi belum diverifikasi. Selesaikan dulu ya."),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.go('/dashboard');
+            },
+            child: const Text("Ke Pesanan Saya"),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
+    final totalBill = _totalProductPrice + _shippingCost;
+    
+    // Logic warna tombol (Abu-abu kalau saldo kurang)
+    final bool isBalanceEnough = _currentBalance >= totalBill;
 
     return Scaffold(
       appBar: AppBar(title: const Text("Pengiriman & Pembayaran")),
       body: _isInitialLoading 
           ? const Center(child: CircularProgressIndicator())
           : _cartItems.isEmpty
-              ? const Center(child: Text("Keranjang kosong, yuk belanja dulu!"))
+              ? const Center(child: Text("Keranjang kosong"))
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -278,41 +301,41 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
                       const Gap(8),
                       TextField(
                         controller: _addressController,
-                        maxLines: 3,
+                        maxLines: 2,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          hintText: "Jalan, Nomor Rumah, RT/RW, Kecamatan...",
+                          hintText: "Alamat Lengkap...",
                           filled: true,
                           fillColor: Colors.white,
                         ),
                       ),
                       const Gap(24),
 
-                      const Text("Ringkasan Pesanan", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Text("Metode Pembayaran", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       const Gap(8),
+                      // ✅ Tampilan Saldo di Halaman Checkout
                       Container(
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.blue[200]!)
                         ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _cartItems.length,
-                          separatorBuilder: (_,__) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final item = _cartItems[index];
-                            final product = item['products'];
-                            return ListTile(
-                              title: Text(product['name'], style: const TextStyle(fontSize: 14)),
-                              subtitle: Text("${item['quantity']} x ${currency.format(product['price'])}"),
-                              trailing: Text(
-                                currency.format(item['quantity'] * product['price']),
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            );
-                          },
+                        child: Row(
+                          children: [
+                            const Icon(Icons.account_balance_wallet, color: Colors.blue),
+                            const Gap(12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("Saldo Veriaga", style: TextStyle(fontSize: 12, color: Colors.black54)),
+                                Text(currency.format(_currentBalance), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              ],
+                            ),
+                            const Spacer(),
+                            if (!isBalanceEnough)
+                              const Text("Kurang!", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12))
+                          ],
                         ),
                       ),
                       const Gap(24),
@@ -322,7 +345,7 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
                       _buildSummaryRow("Subtotal Produk", _totalProductPrice, currency),
                       _buildSummaryRow("Biaya Pengiriman", _shippingCost, currency),
                       const Divider(thickness: 1, height: 24),
-                      _buildSummaryRow("Total Tagihan", _totalProductPrice + _shippingCost, currency, isTotal: true),
+                      _buildSummaryRow("Total Tagihan", totalBill, currency, isTotal: true),
                       
                       const Gap(32),
 
@@ -331,15 +354,23 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
                         child: ElevatedButton(
                           onPressed: _isLoadingPayment ? null : _processPayment,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F172A),
+                            backgroundColor: isBalanceEnough ? const Color(0xFF0F172A) : Colors.grey, // Warna beda kalau saldo kurang
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
                           child: _isLoadingPayment 
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : const Text("BAYAR SEKARANG", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : Text(
+                                "BAYAR SEKARANG", 
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                              ),
                         ),
                       ),
+                      if (!isBalanceEnough)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8.0),
+                          child: Center(child: Text("Silakan Top Up saldo terlebih dahulu di halaman utama.", style: TextStyle(color: Colors.red, fontSize: 12))),
+                        )
                     ],
                   ),
                 ),

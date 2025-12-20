@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:veriaga/features/supplier/dashboard/supplier_home.dart';
 import 'package:veriaga/features/supplier/manage_product/supplier_product.dart';
 import 'package:veriaga/features/supplier/manage_product/supplier_order.dart';
+import 'package:veriaga/features/supplier/chat/supplier_chat.dart';
 
 class SupplierMainPage extends StatefulWidget {
   const SupplierMainPage({super.key});
@@ -15,9 +16,10 @@ class _SupplierMainPageState extends State<SupplierMainPage> {
 
   // Daftar Halaman
   final List<Widget> _pages = [
-    const SupplierHomePage(),    // Index 0
-    const SupplierProductPage(), // Index 1
-    const SupplierOrderPage(),   // Index 2
+    const SupplierHomePage(),    
+    const SupplierProductPage(), 
+    const SupplierOrderPage(),   
+    const SupplierChatListPage(), 
   ];
 
   @override
@@ -50,6 +52,11 @@ class _SupplierMainPageState extends State<SupplierMainPage> {
             icon: Icon(Icons.receipt_long_outlined),
             selectedIcon: Icon(Icons.receipt_long, color: Color(0xFF0F172A)),
             label: 'Pesanan',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            selectedIcon: Icon(Icons.chat_bubble, color: Color(0xFF0F172A)),
+            label: 'Pesan',
           ),
         ],
       ),

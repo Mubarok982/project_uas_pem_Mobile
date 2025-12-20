@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gap/gap.dart';
+import 'package:veriaga/core/utils/user_preferences.dart'; 
+import 'package:veriaga/core/components/veriaga_logo.dart'; // ✅ Pastikan import ini ada
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,14 +15,12 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   
-  // Controller input text
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   
   bool _isLoading = false;
-  bool _isObscure = true; // Untuk sembunyikan password
+  bool _isObscure = true; 
 
-  // ✅ KOREKSI 1: Wajib Dispose Controller untuk mencegah Memory Leak
   @override
   void dispose() {
     _emailController.dispose();
@@ -36,53 +36,47 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final supabase = Supabase.instance.client;
 
-      // 1. Proses Login ke Auth Supabase
+      // 1. Login Supabase
       final AuthResponse response = await supabase.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      // 2. Jika sukses login, Cek Role user ini di tabel 'profiles'
+      // 2. Cek Role
       if (response.user != null) {
         final userId = response.user!.id;
         
-        // Query ke database untuk ambil role
-        // Pastikan RLS di Supabase mengizinkan user membaca profilnya sendiri
         final data = await supabase
             .from('profiles')
             .select('role')
             .eq('id', userId)
-            .single(); // single() karena kita cuma butuh 1 baris data
+            .single();
 
         final role = data['role'] as String;
 
+        // 3. Simpan Role
+        await UserPreferences.saveRole(role);
+
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Login Berhasil sebagai $role!")),
-          );
-          
-          // 3. Redirect ke Dashboard dengan membawa info Role
-          // (Pastikan '/dashboard' sudah ada di app_router.dart)
-          context.go('/dashboard', extra: role);
+          // 4. Navigasi
+          if (role == 'supplier') {
+            context.go('/supplier/home');
+          } else {
+            context.go('/dashboard');
+          }
         }
       }
 
     } on AuthException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message), // Pesan error spesifik (salah password/email)
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text("Gagal: ${e.message}"), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Terjadi kesalahan jaringan atau server"), 
-            backgroundColor: Colors.red
-          ),
+          const SnackBar(content: Text("Kesalahan koneksi"), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -92,112 +86,194 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Brand Color (Biru Veriaga)
+    const brandColor = Color(0xFF0F172A); 
+
     return Scaffold(
-      body: Center(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        // Tombol Back (Hanya muncul jika bisa kembali)
+        leading: context.canPop() 
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black54),
+                onPressed: () => context.pop(),
+              )
+            : null,
+        actions: [
+          // Tombol Daftar di Pojok Kanan Atas
+          TextButton(
+            onPressed: () => context.go('/register'),
+            child: const Text(
+              "Daftar",
+              style: TextStyle(
+                color: brandColor, 
+                fontWeight: FontWeight.bold,
+                fontSize: 16
+              ),
+            ),
+          ),
+          const Gap(8),
+        ],
+      ),
+      body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Form(
             key: _formKey,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Logo atau Icon
-                const Icon(Icons.lock_person_outlined, size: 80, color: Color(0xFF0F172A)),
                 const Gap(20),
                 
-                const Text(
-                  "Selamat Datang Kembali",
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
+                // ✅ KOREKSI UTAMA: Menggunakan Widget Logo Veriaga
+                // Menggantikan container icon manual yang lama
+                const Center(
+                  child: VeriagaLogo(size: 110), 
                 ),
+                
+                const Gap(30),
+
                 const Text(
-                  "Masuk untuk melanjutkan transaksi",
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
+                  "Masuk ke Veriaga",
+                  style: TextStyle(
+                    fontSize: 26, 
+                    fontWeight: FontWeight.bold, 
+                    color: Colors.black87
+                  ),
+                ),
+                const Gap(8),
+                const Text(
+                  "Selamat datang kembali! Silakan masukkan data akun Anda.",
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
                 ),
                 const Gap(40),
 
-                // Input Email
+                // INPUT: Email
+                const Text("Email", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                const Gap(8),
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: "Email",
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.email_outlined),
+                  validator: (v) => (v == null || !v.contains('@')) ? "Email tidak valid" : null,
+                  decoration: InputDecoration(
+                    hintText: "Contoh: user@email.com",
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: brandColor, width: 2)),
                   ),
-                  // ✅ KOREKSI 2: Validasi Format Email agar lebih aman
-                  validator: (v) => (v == null || !v.contains('@')) 
-                      ? "Format email tidak valid" 
-                      : null,
                 ),
-                const Gap(16),
+                
+                const Gap(24),
 
-                // Input Password
+                // INPUT: Password
+                const Text("Kata Sandi", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                const Gap(8),
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _isObscure,
+                  validator: (v) => (v == null || v.isEmpty) ? "Password wajib diisi" : null,
                   decoration: InputDecoration(
-                    labelText: "Password",
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.lock_outlined),
+                    hintText: "Masukkan kata sandi",
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
                     suffixIcon: IconButton(
-                      icon: Icon(_isObscure ? Icons.visibility : Icons.visibility_off),
+                      icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
                       onPressed: () => setState(() => _isObscure = !_isObscure),
                     ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: brandColor, width: 2)),
                   ),
-                  validator: (v) => (v == null || v.isEmpty) 
-                      ? "Password wajib diisi" 
-                      : null,
                 ),
-                const Gap(10),
 
-                // Lupa Password (Tombol Dummy)
+                // Lupa Password
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () {
-                       // Fitur Reset Password bisa ditambahkan nanti
-                       ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(context).showSnackBar(
                          const SnackBar(content: Text("Fitur Reset Password segera hadir!")),
                        );
                     },
-                    child: const Text("Lupa Password?"),
+                    child: const Text("Lupa Kata Sandi?", style: TextStyle(color: brandColor, fontWeight: FontWeight.bold)),
                   ),
                 ),
-                const Gap(20),
-
-                // Tombol Login
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: const Color(0xFF0F172A),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  child: _isLoading 
-                    ? const SizedBox(
-                        height: 20, width: 20, 
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                      ) 
-                    : const Text("MASUK", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-
-                const Gap(20),
                 
-                // Link ke Register
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("Belum punya akun?"),
-                    TextButton(
-                      onPressed: () => context.go('/register'),
-                      child: const Text("Daftar Sekarang"),
+                const Gap(20),
+
+                // TOMBOL MASUK
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _login,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: brandColor,
+                      foregroundColor: Colors.white,
+                      elevation: 0, 
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
+                    child: _isLoading 
+                      ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                      : const Text("Masuk", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+
+                const Gap(30),
+
+                // Divider
+                Row(
+                  children: [
+                    Expanded(child: Divider(color: Colors.grey[300])),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Text("atau masuk dengan", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    ),
+                    Expanded(child: Divider(color: Colors.grey[300])),
                   ],
                 ),
+                
+                const Gap(24),
+
+                // Tombol Google (Dummy)
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ? null : () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login Google (Coming Soon)")));
+                    },
+                    icon: const Icon(Icons.g_mobiledata, size: 28, color: Colors.black87), 
+                    label: const Text("Google", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: Colors.grey[300]!),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                
+                const Gap(30),
+                
+                // Footer
+                Center(
+                  child: GestureDetector(
+                    onTap: () {},
+                    child: RichText(
+                      text: const TextSpan(
+                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                        children: [
+                          TextSpan(text: "Butuh bantuan? "),
+                          TextSpan(text: "Hubungi Veriaga Care", style: TextStyle(color: brandColor, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const Gap(20),
               ],
             ),
           ),

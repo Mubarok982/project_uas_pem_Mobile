@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ✅ WAJIB: Untuk fitur Copy Clipboard
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:gap/gap.dart';
@@ -122,7 +123,6 @@ class _BuyerOrderListState extends State<_BuyerOrderList> with AutomaticKeepAliv
   }
 }
 
-// ✅ WIDGET CARD BARU: Menampilkan Detail Barang untuk Pembeli
 class _BuyerOrderCard extends StatefulWidget {
   final Map<String, dynamic> order;
   const _BuyerOrderCard({required this.order});
@@ -144,7 +144,6 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
   Future<void> _fetchItems() async {
     final supabase = Supabase.instance.client;
     try {
-      // Ambil barang beserta harganya
       final itemsData = await supabase
           .from('order_items')
           .select('quantity, price_at_purchase, products(name, image_url)')
@@ -161,7 +160,26 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
     }
   }
 
-  // ✅ FUNGSI CONFIRM RECEIVED YANG BENAR (Hanya satu versi)
+  // ✅ FITUR BARU 1: Copy ID Pesanan
+  void _copyOrderId() {
+    Clipboard.setData(ClipboardData(text: widget.order['id']));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("ID Pesanan disalin! Tempel di chat."))
+    );
+  }
+
+  // ✅ FITUR BARU 2: Buka Halaman Chat
+  void _openChat() {
+    final orderIdShort = widget.order['id'].toString().substring(0, 8);
+    final initialMsg = "Halo kak, saya mau tanya soal pesanan #$orderIdShort ini.";
+    
+    context.push('/chat', extra: {
+      'partnerId': widget.order['supplier_id'], 
+      'partnerName': "Penjual", 
+      'initialMessage': initialMsg,
+    });
+  }
+
   Future<void> _confirmReceived() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -179,7 +197,6 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
     );
 
     if (confirm == true && mounted) {
-      // 1. Loading Indicator
       showDialog(
         context: context, 
         barrierDismissible: false, 
@@ -187,17 +204,14 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
       );
 
       try {
-        // ✅ STEP PENTING: Update status ke DELIVERED dulu di Database!
-        // Ini yang bikin user "terkunci" dan gak bisa checkout lagi kalau kabur.
         await Supabase.instance.client
             .from('orders')
-            .update({'status': 'DELIVERED'}) // Ubah status jadi SAMPAI
+            .update({'status': 'DELIVERED'}) 
             .eq('id', widget.order['id']);
 
         if (mounted) {
           Navigator.pop(context); // Tutup Loading
-
-          // 2. Lanjut ke Halaman Verifikasi
+          
           final extraData = {
             'order': widget.order,
             'items': _items,
@@ -206,7 +220,7 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
         }
       } catch (e) {
         if (mounted) {
-          Navigator.pop(context); // Tutup Loading
+          Navigator.pop(context); 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Gagal update status: $e"), backgroundColor: Colors.red)
           );
@@ -230,10 +244,23 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ✅ HEADER: ID Pesanan + Tombol Copy + Badge Status
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("Order #${order['id'].toString().substring(0, 8)}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Text("Order #${order['id'].toString().substring(0, 8)}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const Gap(8),
+                      // Ikon Copy
+                      InkWell(
+                        onTap: _copyOrderId,
+                        child: const Icon(Icons.copy, size: 16, color: Colors.blue),
+                      ),
+                    ],
+                  ),
+                ),
                 _StatusBadge(status: status),
               ],
             ),
@@ -259,7 +286,6 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
 
                   return Row(
                     children: [
-                      // Gambar Kecil (Opsional)
                       Container(
                         width: 40, height: 40,
                         decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(4)),
@@ -308,21 +334,51 @@ class _BuyerOrderCardState extends State<_BuyerOrderCard> {
 
             const Gap(16),
 
-            // TOMBOL TERIMA (Hanya di tab Dikirim)
-            if (status == 'SHIPPED' || status == 'DELIVERED')
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _confirmReceived, // Panggil fungsi confirm
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                  child: const Text("Barang Diterima & Verifikasi AI"),
+            // ✅ UPDATE TOMBOL AKSI: Chat & Terima Barang
+            Row(
+              children: [
+                // Tombol Chat (Selalu muncul)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openChat,
+                    icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                    label: const Text("Chat"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0F172A),
+                      side: const BorderSide(color: Color(0xFF0F172A)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
                 ),
-              ),
+                
+                // Tombol Terima Barang (Hanya jika SHIPPED / DELIVERED)
+                if (status == 'SHIPPED' || status == 'DELIVERED') ...[
+                  const Gap(8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _confirmReceived, 
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green, 
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text("Terima"),
+                    ),
+                  ),
+                ],
+              ],
+            ),
               
             if (status == 'COMPLETED')
-               const Center(child: Text("Transaksi Selesai ✅", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
+               const Padding(
+                 padding: EdgeInsets.only(top: 12),
+                 child: Center(child: Text("Transaksi Selesai ✅", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
+               ),
             if (status == 'DISPUTED')
-               const Center(child: Text("Dalam Komplain ⚠️", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+               const Padding(
+                 padding: EdgeInsets.only(top: 12),
+                 child: Center(child: Text("Dalam Komplain ⚠️", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+               ),
           ],
         ),
       ),
@@ -344,13 +400,7 @@ class _StatusBadge extends StatelessWidget {
     else if (s == 'PAID') { color = Colors.orange; text = "DIPROSES"; }
     else if (s == 'PACKED') { color = Colors.blue; text = "DIKEMAS"; }
     else if (s == 'SHIPPED') { color = Colors.indigo; text = "DIKIRIM"; }
-    
-    // ✅ PERJELAS STATUS INI
-    else if (s == 'DELIVERED') { 
-      color = Colors.purple; // Warna beda biar mencolok
-      text = "SAMPAI - BUTUH VERIFIKASI"; 
-    }
-    
+    else if (s == 'DELIVERED') { color = Colors.purple; text = "SAMPAI - BUTUH VERIFIKASI"; }
     else if (s == 'COMPLETED') { color = Colors.green; text = "SELESAI"; }
     else if (s == 'CANCELLED') { color = Colors.red; text = "DIBATALKAN"; }
     else if (s == 'DISPUTED') { color = Colors.red; text = "KOMPLAIN"; }

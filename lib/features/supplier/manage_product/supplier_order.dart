@@ -84,12 +84,15 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
   bool get wantKeepAlive => true;
 
   late final Stream<List<Map<String, dynamic>>> _ordersStream;
+  final TextEditingController _searchController = TextEditingController(); // 1. Controller Search
+  String _searchQuery = "";
 
   @override
   void initState() {
     super.initState();
     final myId = Supabase.instance.client.auth.currentUser!.id;
     
+    // Query tetap sama
     _ordersStream = Supabase.instance.client
         .from('orders')
         .stream(primaryKey: ['id'])
@@ -99,30 +102,76 @@ class _OrderListState extends State<_OrderList> with AutomaticKeepAliveClientMix
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     super.build(context);
     
-    return StreamBuilder(
-      stream: _ordersStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(child: Text("Tidak ada pesanan di tab ini", style: TextStyle(color: Colors.grey[600])));
-        }
+    return Column( // 2. Ubah jadi Column biar ada Search Bar di atas
+      children: [
+        // --- SEARCH BAR MULAI ---
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: "Cari ID Order...",
+              prefixIcon: const Icon(Icons.search),
+              filled: true,
+              fillColor: Colors.grey[100],
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+            ),
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value.toLowerCase(); // 3. Update query saat ngetik
+              });
+            },
+          ),
+        ),
+        // --- SEARCH BAR SELESAI ---
 
-        final orders = snapshot.data!;
+        Expanded(
+          child: StreamBuilder(
+            stream: _ordersStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return Center(child: Text("Tidak ada pesanan", style: TextStyle(color: Colors.grey[600])));
+              }
 
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: orders.length,
-          separatorBuilder: (_, __) => const Gap(16),
-          itemBuilder: (context, index) {
-            return _OrderCard(order: orders[index]);
-          },
-        );
-      },
+              final allOrders = snapshot.data!;
+              
+              // 4. LOGIC FILTERING (Saring data sebelum ditampilkan)
+              final filteredOrders = allOrders.where((order) {
+                final id = order['id'].toString().toLowerCase();
+                // Kalau mau cari nama pembeli agak tricky karena harus join table profiles dulu.
+                // Untuk sekarang cari berdasarkan ID Order dulu yg paling gampang.
+                return id.contains(_searchQuery); 
+              }).toList();
+
+              if (filteredOrders.isEmpty) {
+                return const Center(child: Text("Pesanan tidak ditemukan"));
+              }
+
+              return ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                itemCount: filteredOrders.length, // Pakai list yg sudah difilter
+                separatorBuilder: (_, __) => const Gap(16),
+                itemBuilder: (context, index) {
+                  return _OrderCard(order: filteredOrders[index]);
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

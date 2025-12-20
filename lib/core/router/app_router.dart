@@ -14,6 +14,7 @@ import 'package:veriaga/features/buyer/cart/detail_product.dart';
 import 'package:veriaga/features/buyer/orders/halaman_checkout.dart';
 import 'package:veriaga/features/buyer/orders/verifikasi_ai.dart';
 import 'package:veriaga/features/buyer/profile/edit_profil.dart';
+import 'package:veriaga/features/common/halaman_chat.dart';
 
 
 final appRouter = GoRouter(
@@ -94,6 +95,20 @@ final appRouter = GoRouter(
       builder: (context, state) {
         final currentData = state.extra as Map<String, dynamic>?; // Ambil data lama
         return BuyerEditProfilePage(currentData: currentData);
+      },
+    ),
+    // Import halaman chat
+
+// ... Di dalam routes:
+    GoRoute(
+      path: '/chat',
+      builder: (context, state) {
+        final data = state.extra as Map<String, dynamic>;
+        return ChatPage(
+          partnerId: data['partnerId'], 
+          partnerName: data['partnerName'],
+          initialMessage: data['initialMessage'],
+        );
       },
     ),
   ],

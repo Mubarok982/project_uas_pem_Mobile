@@ -27,20 +27,16 @@ class VeriagaApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Veriaga',
       debugShowCheckedModeBanner: false,
-      
-      // ✅ 1. TEMA LIGHT (Siang) - Modern Blue
       theme: FlexThemeData.light(
-        scheme: FlexScheme.blueWhale, // Warna Biru Elegan (Mirip branding awalmu)
+        scheme: FlexScheme.blueWhale, // Warna Biru Elegan
         surfaceMode: FlexSurfaceMode.levelSurfacesLowScaffold,
         blendLevel: 7,
         subThemesData: const FlexSubThemesData(
           blendOnLevel: 10,
           blendOnColors: false,
-          useTextTheme: true,
           useM2StyleDividerInM3: true,
           alignedDropdown: true,
           useInputDecoratorThemeInDialogs: true,
-          // Bikin tombol radiusnya membulat dikit biar modern
           defaultRadius: 12.0, 
           elevatedButtonSchemeColor: SchemeColor.onPrimary,
           elevatedButtonSecondarySchemeColor: SchemeColor.primary,
@@ -48,29 +44,11 @@ class VeriagaApp extends ConsumerWidget {
         visualDensity: FlexColorScheme.comfortablePlatformDensity,
         useMaterial3: true,
         swapLegacyOnMaterial3: true,
-        // ✅ GANTI FONT JADI POPPINS
-        fontFamily: GoogleFonts.poppins().fontFamily,
+        fontFamily: GoogleFonts.poppins().fontFamily, // Font Poppins
       ),
-
-      // ✅ 2. TEMA DARK (Malam) - Otomatis aktif kalau HP user mode gelap
-      darkTheme: FlexThemeData.dark(
-        scheme: FlexScheme.blueWhale,
-        surfaceMode: FlexSurfaceMode.levelSurfacesLowScaffold,
-        blendLevel: 13,
-        subThemesData: const FlexSubThemesData(
-          blendOnLevel: 20,
-          useTextTheme: true,
-          useM2StyleDividerInM3: true,
-          defaultRadius: 12.0,
-        ),
-        visualDensity: FlexColorScheme.comfortablePlatformDensity,
-        useMaterial3: true,
-        swapLegacyOnMaterial3: true,
-        fontFamily: GoogleFonts.poppins().fontFamily,
-      ),
+      themeMode: ThemeMode.light, 
       
-      themeMode: ThemeMode.system, // Mengikuti pengaturan sistem HP
-      routerConfig: appRouter, // Pastikan variabel 'appRouter' ada di app_router.dart
+      routerConfig: appRouter, 
     );
   }
 }
