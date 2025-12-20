@@ -3,7 +3,7 @@ import 'package:gap/gap.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:fl_chart/fl_chart.dart'; // ✅ WAJIB: Import ini untuk Grafik
+import 'package:fl_chart/fl_chart.dart';
 
 class SupplierHomePage extends StatelessWidget {
   const SupplierHomePage({super.key});
@@ -20,11 +20,19 @@ class SupplierHomePage extends StatelessWidget {
 
   Future<String> _getShopName() async {
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    final data = await Supabase.instance.client.from('profiles').select('shop_name').eq('id', userId).single();
-    return data['shop_name'] ?? 'Toko Saya';
+    try {
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('shop_name')
+          .eq('id', userId)
+          .single();
+      return data['shop_name'] ?? 'Toko Saya';
+    } catch (e) {
+      return 'Toko Saya';
+    }
   }
 
-  // --- LOGIC: MENGOLAH DATA UNTUK GRAFIK ---
+  // --- LOGIC: CHART ---
   List<FlSpot> _getChartData(List<Map<String, dynamic>> orders) {
     Map<int, double> dailyTotals = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0, 6: 0.0};
     final now = DateTime.now();
@@ -32,9 +40,7 @@ class SupplierHomePage extends StatelessWidget {
     for (var order in orders) {
       if (order['status'] == 'COMPLETED' || order['status'] == 'completed') {
         final createdAt = DateTime.parse(order['created_at']).toLocal();
-        
-        // ✅ FIX ERROR: Paksa jadi double
-        final amount = (order['total_amount'] as num).toDouble(); 
+        final amount = (order['total_amount'] as num).toDouble();
         
         final difference = now.difference(createdAt).inDays;
         
@@ -46,7 +52,6 @@ class SupplierHomePage extends StatelessWidget {
     }
 
     return List.generate(7, (index) {
-      // ✅ FIX ERROR: index harus .toDouble() karena sumbu X grafik butuh double
       return FlSpot(index.toDouble(), dailyTotals[index]!);
     });
   }
@@ -79,24 +84,29 @@ class SupplierHomePage extends StatelessWidget {
 
           final allOrders = snapshot.data ?? [];
 
-          // --- HITUNG STATISTIK ---
+          // --- 1. HITUNG STATISTIK ---
           final pendingOrders = allOrders.where((o) => ['PAID', 'paid', 'PACKED', 'packed', 'paid_held'].contains(o['status'])).length;
           final completedOrders = allOrders.where((o) => o['status'] == 'COMPLETED' || o['status'] == 'completed');
           
-          double totalEarnings = 0.0; // ✅ Pastikan inisialisasi double
+          double totalEarnings = 0.0;
           for (var order in completedOrders) {
-            // ✅ FIX ERROR: Konversi num ke double saat menjumlahkan
             totalEarnings += (order['total_amount'] as num).toDouble();
           }
 
-          // Hitung rata-rata
           double avgOrderValue = 0.0;
           if (completedOrders.isNotEmpty) {
-             // ✅ FIX ERROR: Pastikan pembagian menghasilkan double
              avgOrderValue = totalEarnings / completedOrders.length.toDouble();
           }
 
-          // Format Uang
+          // --- 2. PERSIAPAN LIST PESANAN TERBARU ---
+          // Ambil order yang statusnya BUKAN completed, balik urutan (terbaru di atas), ambil 3 teratas
+          final recentOrders = allOrders
+              .where((o) => !['COMPLETED', 'completed', 'CANCELLED', 'cancelled'].contains(o['status']))
+              .toList()
+              .reversed
+              .take(3)
+              .toList();
+
           final currency = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
 
           return SingleChildScrollView(
@@ -104,7 +114,7 @@ class SupplierHomePage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Header Toko
+                // HEADER TOKO
                 FutureBuilder<String>(
                   future: _getShopName(),
                   builder: (context, shopSnapshot) {
@@ -119,7 +129,7 @@ class SupplierHomePage extends StatelessWidget {
                 const Text("Total Pendapatan Bersih", style: TextStyle(fontSize: 12, color: Colors.grey)),
                 const Gap(24),
 
-                // 2. GRAFIK PENJUALAN
+                // GRAFIK
                 Container(
                   height: 200,
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
@@ -141,49 +151,50 @@ class SupplierHomePage extends StatelessWidget {
                 ),
                 const Gap(24),
 
-                // 3. GRID STATISTIK
+                // GRID STATISTIK
                 GridView.count(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   crossAxisCount: 2,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
-                  childAspectRatio: 1.5,
+                  // ✅ FIX: Ratio diperkecil agar kotak lebih tinggi & tidak overflow
+                  childAspectRatio: 1.25, 
                   children: [
                     _buildStatCard("Perlu Proses", "$pendingOrders", Icons.inventory_2, Colors.orange),
                     _buildStatCard("Pesanan Selesai", "${completedOrders.length}", Icons.check_circle, Colors.green),
                     _buildStatCard("Rata-rata Order", _formatCompact(avgOrderValue), Icons.analytics, Colors.blue),
-                    _buildStatCard("Produk Aktif", "Manage", Icons.shopping_bag, Colors.purple, onTap: () => context.push('/supplier/add-product')),
+                    _buildStatCard("Produk Aktif", "Kelola", Icons.shopping_bag, Colors.purple, onTap: () => context.push('/supplier/add-product')),
                   ],
                 ),
                 const Gap(24),
 
-                // 4. ORDER TERBARU
+                // ORDER TERBARU
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text("Pesanan Masuk", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    // Tombol ini bisa diarahkan ke halaman list order full
                     TextButton(onPressed: (){}, child: const Text("Lihat Semua")),
                   ],
                 ),
                 
-                if (pendingOrders == 0)
+                if (recentOrders.isEmpty)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-                    child: const Center(child: Text("Tidak ada pesanan baru hari ini.", style: TextStyle(color: Colors.grey))),
+                    child: const Center(child: Text("Tidak ada pesanan aktif saat ini.", style: TextStyle(color: Colors.grey))),
                   )
                 else
                   ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemCount: allOrders.length > 3 ? 3 : allOrders.length,
+                    itemCount: recentOrders.length,
                     separatorBuilder: (_,__) => const Gap(10),
                     itemBuilder: (context, index) {
-                      final order = allOrders[allOrders.length - 1 - index];
-                      if (order['status'] == 'COMPLETED') return const SizedBox.shrink();
-
+                      final order = recentOrders[index];
+                      
                       return Container(
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
                         child: ListTile(
@@ -193,7 +204,6 @@ class SupplierHomePage extends StatelessWidget {
                           ),
                           title: Text("Order #${order['id'].toString().substring(0,8)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           subtitle: Text(DateFormat('dd MMM HH:mm').format(DateTime.parse(order['created_at']).toLocal())),
-                          // ✅ FIX ERROR: Pastikan total_amount dikonversi jika perlu
                           trailing: Text(currency.format(order['total_amount']), style: const TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       );
@@ -213,6 +223,7 @@ class SupplierHomePage extends StatelessWidget {
     return NumberFormat.compactCurrency(locale: 'id', symbol: '', decimalDigits: 0).format(number);
   }
 
+  // ✅ FIX: Update Stat Card agar aman dari Overflow
   Widget _buildStatCard(String title, String value, IconData icon, Color color, {VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
@@ -225,16 +236,35 @@ class SupplierHomePage extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
+          // Menggunakan spaceBetween agar icon di atas, teks di bawah (mentok)
+          mainAxisAlignment: MainAxisAlignment.spaceBetween, 
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
               child: Icon(icon, color: color, size: 20),
             ),
-            const Spacer(),
-            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // FittedBox: Otomatis mengecilkan font jika angka terlalu panjang
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    value, 
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title, 
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -248,6 +278,9 @@ class _SalesChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Cek jika tidak ada data sama sekali agar tidak error
+    if (dataPoints.isEmpty) return const SizedBox();
+
     return LineChart(
       LineChartData(
         gridData: const FlGridData(show: false),

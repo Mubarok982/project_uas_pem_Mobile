@@ -1,54 +1,66 @@
-//import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; // ✅ Jangan lupa uncomment ini
 import 'package:go_router/go_router.dart';
 
-// Import semua halaman
+// --- AUTH ---
 import 'package:veriaga/features/auth/presentation/login_page.dart';
 import 'package:veriaga/features/auth/presentation/register_page.dart';
+
+// --- SUPPLIER ---
 import 'package:veriaga/features/supplier/dashboard/supplier_main.dart'; 
 import 'package:veriaga/features/supplier/product/add_product.dart';
 import 'package:veriaga/features/supplier/product/edit_product.dart'; 
 import 'package:veriaga/features/supplier/manage_product/supplier_dispute.dart';
 import 'package:veriaga/features/supplier/dashboard/supplier_profile.dart'; 
+import 'package:veriaga/features/supplier/chat/supplier_chat.dart'; 
+
+// --- BUYER ---
 import 'package:veriaga/features/buyer/presentation/halaman_utama.dart'; 
 import 'package:veriaga/features/buyer/cart/detail_product.dart';
 import 'package:veriaga/features/buyer/orders/halaman_checkout.dart';
 import 'package:veriaga/features/buyer/orders/verifikasi_ai.dart';
 import 'package:veriaga/features/buyer/profile/edit_profil.dart';
-import 'package:veriaga/features/common/halaman_chat.dart';
 
+// --- COMMON (UMUM) ---
+import 'package:veriaga/features/common/halaman_chat.dart'; // ✅ Import Chat Page disini
 
 final appRouter = GoRouter(
   initialLocation: '/login',
   routes: [
-    // 1. Login
+    // 1. LOGIN
     GoRoute(
       path: '/login',
       builder: (context, state) => const LoginPage(),
     ),
     
-    // 2. Register
+    // 2. REGISTER
     GoRoute(
       path: '/register',
       builder: (context, state) => const RegisterPage(),
     ),
     
-    // 3. Dashboard (Logika Percabangan Peran)
+    // ✅ 3. RUTE SUPPLIER HOME (Solusi Error 'no routes')
+    GoRoute(
+      path: '/supplier/home',
+      builder: (context, state) => const SupplierMainPage(),
+    ),
+
+    // 4. DASHBOARD (Rute Utama Buyer / Fallback)
     GoRoute(
       path: '/dashboard',
       builder: (context, state) {
-        // Ambil role, default ke 'buyer' jika null
+        // Logika safety: Kalau ada extra 'supplier', lempar ke SupplierMainPage
+        // Tapi normalnya Buyer langsung kesini.
         final role = state.extra as String? ?? 'buyer';
         
         if (role == 'supplier') {
           return const SupplierMainPage();
         } else {
-          // ✅ PERBAIKAN: Langsung arahkan ke BuyerMainPage
           return const BuyerMainPage(); 
         }
       },
     ),
     
-    // --- RUTE SUPPLIER ---
+    // --- SUB-HALAMAN SUPPLIER ---
     GoRoute(
       path: '/supplier/add-product',
       builder: (context, state) => const AddProductPage(),
@@ -71,7 +83,8 @@ final appRouter = GoRouter(
       path: '/supplier/profile',
       builder: (context, state) => const SupplierProfilePage(),
     ),
-    // --- RUTE BUYER ---
+    
+    // --- SUB-HALAMAN BUYER ---
     GoRoute(
       path: '/buyer/product-detail',
       builder: (context, state) {
@@ -86,20 +99,20 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/buyer/verify-ai',
       builder: (context, state) {
-        final order = state.extra as Map<String, dynamic>;
-        return VerifikasiAI(data: order);
+        // Ambil data (support format lama & baru)
+        final extra = state.extra as Map<String, dynamic>;
+        return VerifikasiAI(data: extra);
       },
     ),
     GoRoute(
       path: '/buyer/edit-profile',
       builder: (context, state) {
-        final currentData = state.extra as Map<String, dynamic>?; // Ambil data lama
+        final currentData = state.extra as Map<String, dynamic>?; 
         return BuyerEditProfilePage(currentData: currentData);
       },
     ),
-    // Import halaman chat
 
-// ... Di dalam routes:
+    // --- HALAMAN CHAT (UMUM) ---
     GoRoute(
       path: '/chat',
       builder: (context, state) {
