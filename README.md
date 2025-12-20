@@ -3,7 +3,6 @@
 **Veriaga** adalah aplikasi marketplace mobile berbasis Flutter yang menghubungkan **Supplier** dan **Buyer** dengan sistem transaksi yang aman, terverifikasi, dan *real-time*. Aplikasi ini dirancang dengan antarmuka modern (Clean UI) dan fitur manajemen toko yang lengkap.
 
 ![Veriaga Banner](assets/icon/icon.png) 
-*(Ganti ini dengan screenshot aplikasi jika ada)*
 
 ## 🌟 Fitur Unggulan
 
