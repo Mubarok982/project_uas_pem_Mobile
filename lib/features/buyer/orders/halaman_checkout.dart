@@ -113,6 +113,32 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
         });
   }
 
+  // ✅ LOGIC BARU: Cek apakah user punya order 'menggantung' (Sampai tapi belum Selesai)
+  // ✅ GANTI FUNGSI INI DI DALAM buyer_checkout_page.dart
+ // ✅ LOGIC UPDATE: Cek Case-Insensitive (Huruf besar/kecil tetap kena)
+  Future<bool> _checkBlockingOrders() async {
+    final supabase = Supabase.instance.client;
+    final userId = supabase.auth.currentUser!.id;
+
+    try {
+      // Kita pakai .or untuk menangkap 'DELIVERED', 'delivered', atau 'Delivered'
+      // Supaya kalau ada beda penulisan di DB tetap terblokir
+      final List blockedOrders = await supabase
+          .from('orders')
+          .select('id, status')
+          .eq('buyer_id', userId)
+          .or('status.eq.DELIVERED,status.eq.delivered,status.eq.Delivered'); 
+      
+      // Debugging: Cek di terminal apakah ketemu
+      print("🔍 Cek Blokir: Ditemukan ${blockedOrders.length} order status DELIVERED");
+
+      return blockedOrders.isNotEmpty;
+    } catch (e) {
+      print("❌ Error Cek Blokir: $e");
+      return false; 
+    }
+  }
+
   Future<void> _processPayment() async {
     if (_addressController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Alamat pengiriman wajib diisi!")));
@@ -120,14 +146,44 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
     }
     
     setState(() => _isLoadingPayment = true);
+
+    // ✅ 1. CEK BLOCKING ORDER SEBELUM LANJUT
+    bool isBlocked = await _checkBlockingOrders();
+    
+    if (isBlocked) {
+      setState(() => _isLoadingPayment = false);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("Selesaikan Pesanan Dulu! ⚠️"),
+            content: const Text("Kamu memiliki pesanan yang statusnya 'Sampai' tapi belum diverifikasi/diselesaikan.\n\nHarap selesaikan pesanan sebelumnya agar bisa membuat pesanan baru."),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx), 
+                child: const Text("Tutup")
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  context.go('/dashboard'); // Arahkan ke Pesanan Saya
+                },
+                child: const Text("Ke Pesanan Saya"),
+              ),
+            ],
+          ),
+        );
+      }
+      return; // ⛔ BERHENTI DI SINI
+    }
+
     final supabase = Supabase.instance.client;
     final userId = supabase.auth.currentUser!.id;
 
     try {
       if (_cartItems.isEmpty) return;
 
-      // 1. CEK STOK DULU (Validasi)
-      // Jangan sampai beli barang ghoib (stok habis tapi lolos)
+      // 2. CEK STOK DULU (Validasi)
       for (var item in _cartItems) {
         final product = item['products'];
         final qty = item['quantity'] as int;
@@ -141,20 +197,20 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
       final supplierId = _cartItems.first['products']['supplier_id']; 
       final totalAmount = _totalProductPrice + _shippingCost;
       
-      // 2. Buat Order
+      // 3. Buat Order
       final orderRes = await supabase.from('orders').insert({
         'buyer_id': userId,
         'supplier_id': supplierId,
         'total_amount': totalAmount,
         'shipping_address': _addressController.text,
         'shipping_cost': _shippingCost,
-        'status': 'paid',
+        'status': 'paid', // Status awal
         'created_at': DateTime.now().toIso8601String(),
       }).select().single();
 
       final orderId = orderRes['id'];
 
-      // 3. Proses Item Order & KURANGI STOK
+      // 4. Proses Item Order & KURANGI STOK
       for (var item in _cartItems) {
         final product = item['products'];
         final qty = item['quantity'] as int;
@@ -168,15 +224,14 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
           'price_at_purchase': product['price'],
         });
 
-        // ✅ B. UPDATE STOK PRODUK (Kurangi Stok)
-        // Ini bagian yang tadi mungkin terlewat
+        // B. UPDATE STOK PRODUK (Kurangi Stok)
         final newStock = currentStock - qty;
         await supabase.from('products').update({
           'stock': newStock
         }).eq('id', product['id']);
       }
 
-      // 4. Catat Transaksi
+      // 5. Catat Transaksi
       await supabase.from('transactions').insert({
         'order_id': orderId,
         'amount': totalAmount,
@@ -184,7 +239,7 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
         'payment_method': 'Virtual Account (Simulasi)',
       });
 
-      // 5. HAPUS KERANJANG
+      // 6. HAPUS KERANJANG
       await supabase.from('cart_items').delete().eq('user_id', userId);
 
       if (mounted) {
@@ -194,7 +249,6 @@ class _BuyerCheckoutPageState extends State<BuyerCheckoutPage> {
 
     } catch (e) {
       if (mounted) {
-        // Rapihkan pesan error
         final message = e.toString().replaceAll('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Gagal: $message"), backgroundColor: Colors.red)

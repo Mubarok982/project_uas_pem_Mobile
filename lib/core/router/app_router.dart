@@ -12,7 +12,7 @@ import 'package:veriaga/features/supplier/dashboard/supplier_profile.dart';
 import 'package:veriaga/features/buyer/presentation/halaman_utama.dart'; 
 import 'package:veriaga/features/buyer/cart/detail_product.dart';
 import 'package:veriaga/features/buyer/orders/halaman_checkout.dart';
-import 'package:veriaga/features/buyer/orders/verifikasiAI.dart';
+import 'package:veriaga/features/buyer/orders/verifikasi_ai.dart';
 import 'package:veriaga/features/buyer/profile/edit_profil.dart';
 
 
@@ -86,7 +86,7 @@ final appRouter = GoRouter(
       path: '/buyer/verify-ai',
       builder: (context, state) {
         final order = state.extra as Map<String, dynamic>;
-        return BuyerAiVerificationPage(order: order);
+        return VerifikasiAI(data: order);
       },
     ),
     GoRoute(
