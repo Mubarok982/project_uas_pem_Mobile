@@ -3,7 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gap/gap.dart';
 import 'package:veriaga/core/utils/user_preferences.dart'; 
-import 'package:veriaga/core/components/veriaga_logo.dart'; // ✅ Pastikan import ini ada
+import 'package:veriaga/core/components/veriaga_logo.dart'; 
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -14,12 +14,15 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   
   bool _isLoading = false;
   bool _isObscure = true; 
+
+  // Warna Brand
+  final Color primaryColor = const Color(0xFF0F172A); // Navy Blue
+  final Color accentColor = const Color(0xFFFBBF24);  // Kuning Emas
 
   @override
   void dispose() {
@@ -28,37 +31,34 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  void _showComingSoon() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Menu akan segera tersedia"),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
     try {
       final supabase = Supabase.instance.client;
-
-      // 1. Login Supabase
       final AuthResponse response = await supabase.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      // 2. Cek Role
       if (response.user != null) {
         final userId = response.user!.id;
-        
-        final data = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', userId)
-            .single();
-
+        final data = await supabase.from('profiles').select('role').eq('id', userId).single();
         final role = data['role'] as String;
-
-        // 3. Simpan Role
         await UserPreferences.saveRole(role);
 
         if (mounted) {
-          // 4. Navigasi
           if (role == 'supplier') {
             context.go('/supplier/home');
           } else {
@@ -66,19 +66,10 @@ class _LoginPageState extends State<LoginPage> {
           }
         }
       }
-
     } on AuthException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Gagal: ${e.message}"), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: Colors.red));
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Kesalahan koneksi"), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Kesalahan koneksi"), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -86,199 +77,186 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Brand Color (Biru Veriaga)
-    const brandColor = Color(0xFF0F172A); 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 900; 
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        // Tombol Back (Hanya muncul jika bisa kembali)
-        leading: context.canPop() 
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.black54),
-                onPressed: () => context.pop(),
-              )
-            : null,
-        actions: [
-          // Tombol Daftar di Pojok Kanan Atas
-          TextButton(
-            onPressed: () => context.go('/register'),
-            child: const Text(
-              "Daftar",
-              style: TextStyle(
-                color: brandColor, 
-                fontWeight: FontWeight.bold,
-                fontSize: 16
-              ),
-            ),
-          ),
-          const Gap(8),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Gap(20),
-                
-                // ✅ KOREKSI UTAMA: Menggunakan Widget Logo Veriaga
-                // Menggantikan container icon manual yang lama
-                const Center(
-                  child: VeriagaLogo(size: 110), 
-                ),
-                
-                const Gap(30),
-
-                const Text(
-                  "Masuk ke Veriaga",
-                  style: TextStyle(
-                    fontSize: 26, 
-                    fontWeight: FontWeight.bold, 
-                    color: Colors.black87
-                  ),
-                ),
-                const Gap(8),
-                const Text(
-                  "Selamat datang kembali! Silakan masukkan data akun Anda.",
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
-                ),
-                const Gap(40),
-
-                // INPUT: Email
-                const Text("Email", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-                const Gap(8),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (v) => (v == null || !v.contains('@')) ? "Email tidak valid" : null,
-                  decoration: InputDecoration(
-                    hintText: "Contoh: user@email.com",
-                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: brandColor, width: 2)),
-                  ),
-                ),
-                
-                const Gap(24),
-
-                // INPUT: Password
-                const Text("Kata Sandi", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-                const Gap(8),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _isObscure,
-                  validator: (v) => (v == null || v.isEmpty) ? "Password wajib diisi" : null,
-                  decoration: InputDecoration(
-                    hintText: "Masukkan kata sandi",
-                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-                    suffixIcon: IconButton(
-                      icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
-                      onPressed: () => setState(() => _isObscure = !_isObscure),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: brandColor, width: 2)),
-                  ),
-                ),
-
-                // Lupa Password
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                         const SnackBar(content: Text("Fitur Reset Password segera hadir!")),
-                       );
-                    },
-                    child: const Text("Lupa Kata Sandi?", style: TextStyle(color: brandColor, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-                
-                const Gap(20),
-
-                // TOMBOL MASUK
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _login,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: brandColor,
-                      foregroundColor: Colors.white,
-                      elevation: 0, 
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: _isLoading 
-                      ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                      : const Text("Masuk", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-
-                const Gap(30),
-
-                // Divider
-                Row(
+      // ✅ Ini penting: Tetap true agar UI naik saat keyboard muncul
+      resizeToAvoidBottomInset: true, 
+      body: Row(
+        children: [
+          // 1. BAGIAN KIRI (Desktop Only - Tetap Statis Full Height)
+          if (isDesktop) 
+            Expanded(
+              flex: 5,
+              child: Container(
+                color: primaryColor,
+                child: Stack(
                   children: [
-                    Expanded(child: Divider(color: Colors.grey[300])),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Text("atau masuk dengan", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    Positioned(
+                      top: -100, right: -100,
+                      child: Container(width: 400, height: 400, decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle)),
                     ),
-                    Expanded(child: Divider(color: Colors.grey[300])),
-                  ],
-                ),
-                
-                const Gap(24),
-
-                // Tombol Google (Dummy)
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoading ? null : () {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Login Google (Coming Soon)")));
-                    },
-                    icon: const Icon(Icons.g_mobiledata, size: 28, color: Colors.black87), 
-                    label: const Text("Google", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: Colors.grey[300]!),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    Positioned(
+                      bottom: 50, left: 50,
+                      child: Container(width: 200, height: 200, decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle)),
                     ),
-                  ),
-                ),
-                
-                const Gap(30),
-                
-                // Footer
-                Center(
-                  child: GestureDetector(
-                    onTap: () {},
-                    child: RichText(
-                      text: const TextSpan(
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                    Padding(
+                      padding: const EdgeInsets.all(60),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          TextSpan(text: "Butuh bantuan? "),
-                          TextSpan(text: "Hubungi Veriaga Care", style: TextStyle(color: brandColor, fontWeight: FontWeight.bold)),
+                          const VeriagaLogo(size: 100, isColored: false),
+                          const Gap(40),
+                          const Text("Kelola Bisnis\nTanpa Batas.", style: TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold, height: 1.2)),
+                          const Gap(20),
+                          Text("Platform Supplier & Buyer terpercaya dengan sistem verifikasi canggih dan transaksi yang aman.", style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 18, height: 1.5)),
                         ],
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+
+          // 2. BAGIAN KANAN (FORM)
+          Expanded(
+            flex: isDesktop ? 4 : 1,
+            child: Center( // ✅ CENTER: Biar form ada di tengah vertikal
+              child: SingleChildScrollView( // ✅ SCROLL: Hanya aktif kalau layar kependekan/keyboard muncul
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!isDesktop) ...[
+                          const Center(child: VeriagaLogo(size: 80)),
+                          const Gap(30),
+                        ],
+
+                        Text("Selamat Datang!", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: primaryColor)),
+                        const Gap(8),
+                        const Text("Silakan login dengan akun Anda.", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                        const Gap(40),
+
+                        _buildLabel("Email Address"),
+                        TextFormField(
+                          controller: _emailController,
+                          validator: (v) => (v == null || !v.contains('@')) ? "Email tidak valid" : null,
+                          decoration: _inputDecoration(hint: "nama@email.com", icon: Icons.email_outlined),
+                        ),
+                        const Gap(24),
+
+                        _buildLabel("Password"),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _isObscure,
+                          validator: (v) => (v == null || v.isEmpty) ? "Password wajib diisi" : null,
+                          decoration: _inputDecoration(hint: "••••••••", icon: Icons.lock_outline, isPassword: true),
+                        ),
+
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _showComingSoon,
+                            child: const Text("Lupa Password?", style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          ),
+                        ),
+                        const Gap(24),
+
+                        SizedBox(
+                          height: 56,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 2,
+                            ),
+                            child: _isLoading 
+                                ? const CircularProgressIndicator(color: Colors.white) 
+                                : const Text("Masuk", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+
+                        const Gap(16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text("Belum punya akun?", style: TextStyle(color: Colors.grey)),
+                            TextButton(
+                              onPressed: () => context.go('/register'),
+                              child: Text("Buat Akun Baru", style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+
+                        const Gap(20),
+                        
+                        const Row(
+                          children: [
+                            Expanded(child: Divider()),
+                            Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text("atau", style: TextStyle(color: Colors.grey))),
+                            Expanded(child: Divider()),
+                          ],
+                        ),
+                        const Gap(24),
+
+                        SizedBox(
+                          height: 56,
+                          child: OutlinedButton.icon(
+                            onPressed: _showComingSoon,
+                            icon: const Icon(Icons.g_mobiledata, size: 30, color: Colors.black87),
+                            label: const Text("Masuk dengan Google", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Colors.grey.shade300),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const Gap(20),
-              ],
+              ),
             ),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+    );
+  }
+
+  InputDecoration _inputDecoration({required String hint, required IconData icon, bool isPassword = false}) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: TextStyle(color: Colors.grey.shade400),
+      prefixIcon: Icon(icon, color: Colors.grey.shade400, size: 20),
+      suffixIcon: isPassword 
+          ? IconButton(
+              icon: Icon(_isObscure ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: Colors.grey.shade400),
+              onPressed: () => setState(() => _isObscure = !_isObscure),
+            )
+          : null,
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.5)),
     );
   }
 }
