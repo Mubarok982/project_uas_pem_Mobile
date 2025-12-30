@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart'; // ✅ Jangan lupa uncomment ini
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 // --- AUTH ---
@@ -11,7 +11,8 @@ import 'package:veriaga/features/supplier/product/add_product.dart';
 import 'package:veriaga/features/supplier/product/edit_product.dart'; 
 import 'package:veriaga/features/supplier/manage_product/supplier_dispute.dart';
 import 'package:veriaga/features/supplier/dashboard/supplier_profile.dart'; 
-import 'package:veriaga/features/supplier/chat/supplier_chat.dart'; 
+// import 'package:veriaga/features/supplier/chat/supplier_chat.dart'; // (Opsional jika tidak dipakai di router ini)
+import 'package:veriaga/features/supplier/manage_product/supplier_order.dart';
 
 // --- BUYER ---
 import 'package:veriaga/features/buyer/presentation/halaman_utama.dart'; 
@@ -21,7 +22,7 @@ import 'package:veriaga/features/buyer/orders/verifikasi_ai.dart';
 import 'package:veriaga/features/buyer/profile/edit_profil.dart';
 
 // --- COMMON (UMUM) ---
-import 'package:veriaga/features/common/halaman_chat.dart'; // ✅ Import Chat Page disini
+import 'package:veriaga/features/common/halaman_chat.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/login',
@@ -38,7 +39,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const RegisterPage(),
     ),
     
-    // ✅ 3. RUTE SUPPLIER HOME (Solusi Error 'no routes')
+    // 3. RUTE SUPPLIER HOME
     GoRoute(
       path: '/supplier/home',
       builder: (context, state) => const SupplierMainPage(),
@@ -48,8 +49,7 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/dashboard',
       builder: (context, state) {
-        // Logika safety: Kalau ada extra 'supplier', lempar ke SupplierMainPage
-        // Tapi normalnya Buyer langsung kesini.
+        // Cek role dari state extra, default ke 'buyer'
         final role = state.extra as String? ?? 'buyer';
         
         if (role == 'supplier') {
@@ -60,18 +60,31 @@ final appRouter = GoRouter(
       },
     ),
     
-    // --- SUB-HALAMAN SUPPLIER ---
+    // ==========================================
+    // SUB-HALAMAN SUPPLIER
+    // ==========================================
+    
+    // ✅ RUTE ORDER (DIPERBAIKI)
+    // Path ini sekarang cocok dengan context.push('/supplier/orders')
+    GoRoute(
+      path: '/supplier/orders', 
+      builder: (context, state) => const SupplierOrderPage(),
+    ),
+
     GoRoute(
       path: '/supplier/add-product',
       builder: (context, state) => const AddProductPage(),
     ),
+    
     GoRoute(
       path: '/supplier/edit-product',
       builder: (context, state) {
+        // Menerima data produk untuk diedit
         final product = state.extra as Map<String, dynamic>; 
         return EditProductPage(product: product);
       },
     ),
+    
     GoRoute(
       path: '/supplier/dispute-detail',
       builder: (context, state) {
@@ -79,12 +92,15 @@ final appRouter = GoRouter(
         return SupplierDisputePage(orderId: orderId);
       },
     ),
+    
     GoRoute(
       path: '/supplier/profile',
       builder: (context, state) => const SupplierProfilePage(),
     ),
     
-    // --- SUB-HALAMAN BUYER ---
+    // ==========================================
+    // SUB-HALAMAN BUYER
+    // ==========================================
     GoRoute(
       path: '/buyer/product-detail',
       builder: (context, state) {
@@ -92,18 +108,20 @@ final appRouter = GoRouter(
         return BuyerProductDetailPage(product: product);
       },
     ),
+    
     GoRoute(
       path: '/buyer/checkout',
       builder: (context, state) => const BuyerCheckoutPage(),
     ),
+    
     GoRoute(
       path: '/buyer/verify-ai',
       builder: (context, state) {
-        // Ambil data (support format lama & baru)
         final extra = state.extra as Map<String, dynamic>;
         return VerifikasiAI(data: extra);
       },
     ),
+    
     GoRoute(
       path: '/buyer/edit-profile',
       builder: (context, state) {
@@ -112,10 +130,13 @@ final appRouter = GoRouter(
       },
     ),
 
-    // --- HALAMAN CHAT (UMUM) ---
+    // ==========================================
+    // HALAMAN UMUM (CHAT)
+    // ==========================================
     GoRoute(
       path: '/chat',
       builder: (context, state) {
+        // Menerima data partner chat
         final data = state.extra as Map<String, dynamic>;
         return ChatPage(
           partnerId: data['partnerId'], 

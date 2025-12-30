@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
-// ✅ UBAH JADI STATEFUL WIDGET
 class SupplierProductPage extends StatefulWidget {
   const SupplierProductPage({super.key});
 
@@ -13,7 +12,7 @@ class SupplierProductPage extends StatefulWidget {
 
 class _SupplierProductPageState extends State<SupplierProductPage> {
   
-  // Stream data produk
+  // Stream data produk dari Supabase
   Stream<List<Map<String, dynamic>>> _productsStream() {
     return Supabase.instance.client
         .from('products')
@@ -30,19 +29,37 @@ class _SupplierProductPageState extends State<SupplierProductPage> {
         .eq('id', productId);
   }
 
+  // Fungsi Konfirmasi Hapus
+  void _confirmDelete(BuildContext context, String productId) {
+     showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Hapus Produk?"),
+        content: const Text("Produk yang dihapus tidak bisa dikembalikan."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Batal")),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await Supabase.instance.client.from('products').delete().eq('id', productId);
+            },
+            child: const Text("Hapus", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Stok Barang")),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          // 1. Tunggu user selesai tambah produk
+          // Navigasi ke tambah produk
           await context.push('/supplier/add-product');
-          
-          // 2. Refresh halaman (Sekarang sudah bisa karena Stateful)
-          if (mounted) {
-            setState(() {}); 
-          }
+          // Refresh state jika kembali
+          if (mounted) setState(() {}); 
         },
         label: const Text("Tambah Produk"),
         icon: const Icon(Icons.add),
@@ -112,11 +129,16 @@ class _SupplierProductPageState extends State<SupplierProductPage> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // ✅ SWITCH DENGAN WARNA BARU
                       Switch(
                         value: isActive,
-                        activeThumbColor: const Color(0xFF0F172A),
+                        activeColor: Colors.white,          // Bulatan Putih
+                        activeTrackColor: Colors.lightBlue, // Track Biru Muda
+                        inactiveThumbColor: Colors.grey,
+                        inactiveTrackColor: Colors.grey.shade300,
                         onChanged: (val) => _toggleStatus(product['id'], isActive),
                       ),
+                      
                       PopupMenuButton(
                         onSelected: (value) async {
                           if (value == 'edit') {
@@ -138,26 +160,6 @@ class _SupplierProductPageState extends State<SupplierProductPage> {
             },
           );
         },
-      ),
-    );
-  }
-
-  void _confirmDelete(BuildContext context, String productId) {
-     showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Hapus Produk?"),
-        content: const Text("Produk yang dihapus tidak bisa dikembalikan."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Batal")),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await Supabase.instance.client.from('products').delete().eq('id', productId);
-            },
-            child: const Text("Hapus", style: TextStyle(color: Colors.red)),
-          ),
-        ],
       ),
     );
   }
